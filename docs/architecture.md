@@ -222,6 +222,10 @@ Base path `/api/v1`.
 | `GET` | `/validations/{requestId}` | Status, plus result once terminal |
 | `GET` | `/actuator/health` | Liveness |
 
+Local runs map Postgres to host port **5433** by default, overridable with
+`POSTGRES_PORT`, because a developer machine very often already has something on
+5432. The service reads the same variable.
+
 The upload is a raw body rather than multipart, carrying its metadata in the two
 headers a presigned S3 `PUT` would use anyway: `Content-Type`, and
 `Content-Disposition` for the filename. A missing filename is a `400` rather than
@@ -230,9 +234,18 @@ verdict. Media-type parameters are dropped before storage, so a client sending
 `application/pdf;charset=UTF-8` and one sending `application/pdf` are the same
 document to the allowed-type check.
 
-Uploads are capped at 10MB. The cap is enforced twice: a filter rejects an
-oversized `Content-Length` before the body is buffered, and the service checks
-the actual length again because a chunked request arrives without one.
+Uploads are capped at 10MB, enforced by a filter before Spring buffers the body:
+an oversized `Content-Length` is `413`, and a request that declares no length at
+all is `411`. Refusing the chunked upload is the point — once the bytes are in
+memory there is nothing left to protect. A presigned S3 `PUT` requires a length
+too, so the SDK loses nothing. The service checks the length a second time,
+because it is the layer that owns the rule.
+
+An upload arriving after the window has closed moves the request to `EXPIRED`
+and answers `409`. The transition is committed and then reported, rather than
+thrown from inside the transaction that made it - throwing there would roll back
+the very state change the response describes and leave the request
+`PENDING_UPLOAD` forever.
 
 `POST /validations/{requestId}/confirm` is intentionally **not** implemented.
 With a service-hosted `PUT` the upload response is itself the confirmation, so a

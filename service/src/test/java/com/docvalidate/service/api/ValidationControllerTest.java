@@ -164,4 +164,44 @@ class ValidationControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
     }
+
+    @Test
+    void anUploadAfterTheWindowClosedIs409RequestExpired() throws Exception {
+        UUID requestId = UUID.randomUUID();
+        when(validations.upload(any(), any(), any(), any())).thenReturn(UploadOutcome.EXPIRED);
+
+        mvc.perform(put("/api/v1/validations/{id}/content", requestId)
+                        .contentType(MediaType.APPLICATION_PDF)
+                        .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"invoice.pdf\"")
+                        .content("hello"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("REQUEST_EXPIRED"));
+    }
+
+    @Test
+    void aMalformedContentDispositionIs400RatherThan500() throws Exception {
+        mvc.perform(put("/api/v1/validations/{id}/content", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_PDF)
+                        .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename*=UTF-8''%zz")
+                        .content("hello"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+
+        verifyNoInteractions(validations);
+    }
+
+    @Test
+    void anUnknownPathIs404NotAnInternalError() throws Exception {
+        mvc.perform(get("/api/v1/nope"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("RESOURCE_NOT_FOUND"));
+    }
+
+    @Test
+    void theWrongMethodIs405AndKeepsItsAllowHeader() throws Exception {
+        mvc.perform(post("/api/v1/validations/{id}", UUID.randomUUID()))
+                .andExpect(status().isMethodNotAllowed())
+                .andExpect(header().exists(HttpHeaders.ALLOW))
+                .andExpect(jsonPath("$.code").value("METHOD_NOT_ALLOWED"));
+    }
 }

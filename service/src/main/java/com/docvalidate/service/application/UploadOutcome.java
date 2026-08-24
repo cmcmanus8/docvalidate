@@ -6,5 +6,8 @@ public enum UploadOutcome {
     ACCEPTED,
 
     /** A replay of an upload we already hold, byte for byte. No state change. */
-    ALREADY_ACCEPTED
+    ALREADY_ACCEPTED,
+
+    /** The upload window had closed; the request is now EXPIRED. */
+    EXPIRED
 }

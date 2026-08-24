@@ -1,6 +1,7 @@
 package com.docvalidate.service.api;
 
 import com.docvalidate.service.application.CreateResult;
+import com.docvalidate.service.application.RequestExpiredException;
 import com.docvalidate.service.application.UploadOutcome;
 import com.docvalidate.service.application.ValidationService;
 import com.docvalidate.service.domain.ValidationRequest;
@@ -70,6 +71,11 @@ public class ValidationController {
 
         String filename = filenameFrom(contentDisposition);
         UploadOutcome outcome = validations.upload(requestId, filename, mimeTypeOf(contentType), content);
+        if (outcome == UploadOutcome.EXPIRED) {
+            // The service committed the EXPIRED transition; turning it into a 409 is the
+            // controller's job precisely so that commit survives.
+            throw new RequestExpiredException(requestId);
+        }
 
         HttpStatus status = outcome == UploadOutcome.ACCEPTED ? HttpStatus.ACCEPTED : HttpStatus.OK;
         return ResponseEntity.status(status).body(ValidationView.of(validations.get(requestId)));
@@ -94,7 +100,12 @@ public class ValidationController {
         if (contentDisposition == null || contentDisposition.isBlank()) {
             throw new MissingFilenameException();
         }
-        String filename = ContentDisposition.parse(contentDisposition).getFilename();
+        String filename;
+        try {
+            filename = ContentDisposition.parse(contentDisposition).getFilename();
+        } catch (IllegalArgumentException e) {
+            throw new MissingFilenameException();
+        }
         if (filename == null || filename.isBlank()) {
             throw new MissingFilenameException();
         }

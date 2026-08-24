@@ -10,6 +10,8 @@ import org.springframework.stereotype.Component;
 @Component
 public class LocalFilesystemStorage implements DocumentStorage {
 
+    private static final int MAX_FILENAME_LENGTH = 120;
+
     private final Path root;
 
     public LocalFilesystemStorage(DocValidateProperties properties) {
@@ -44,6 +46,12 @@ public class LocalFilesystemStorage implements DocumentStorage {
      */
     private static String sanitise(String filename) {
         String cleaned = filename.replaceAll("[^A-Za-z0-9._-]", "_");
+        if (cleaned.length() > MAX_FILENAME_LENGTH) {
+            // Every filesystem has a name limit; hitting it would surface as a storage
+            // failure on an otherwise valid request. The digest is what identifies the
+            // bytes, so a truncated name loses nothing that matters.
+            cleaned = cleaned.substring(0, MAX_FILENAME_LENGTH);
+        }
         return cleaned.isBlank() || cleaned.replace(".", "").isEmpty() ? "document" : cleaned;
     }
 }

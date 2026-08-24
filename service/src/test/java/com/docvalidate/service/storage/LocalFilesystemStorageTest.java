@@ -52,4 +52,14 @@ class LocalFilesystemStorageTest {
                 .assertThatThrownBy(() -> storage.read(UUID.randomUUID() + "/absent.pdf"))
                 .isInstanceOf(StorageException.class);
     }
+
+    @Test
+    void truncatesAFilenameTooLongForTheFilesystem() {
+        UUID requestId = UUID.randomUUID();
+
+        String key = storage().store(requestId, "a".repeat(400) + ".pdf", "x".getBytes());
+
+        assertThat(key.substring(key.indexOf('/') + 1)).hasSize(120);
+        assertThat(root.resolve(key)).exists();
+    }
 }

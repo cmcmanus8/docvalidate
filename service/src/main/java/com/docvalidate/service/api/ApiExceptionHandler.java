@@ -16,6 +16,10 @@ import org.springframework.http.ProblemDetail;
 import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.context.request.WebRequest;
+import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 /**
@@ -23,7 +27,7 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
  * switch on. Status alone is not enough: 409 means three different things here.
  */
 @RestControllerAdvice
-class ApiExceptionHandler {
+class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(ApiExceptionHandler.class);
 
@@ -70,6 +74,37 @@ class ApiExceptionHandler {
         log.error("Document storage failed", e);
         return problem(HttpStatus.INTERNAL_SERVER_ERROR, ProblemCode.STORAGE_FAILURE,
                 "Storage failure", "The document could not be stored", null);
+    }
+
+    /**
+     * Spring's own failures - unknown path, wrong method, unreadable body - are handled by
+     * the base class so they keep their status and their Allow header, and only pick up a
+     * code on the way out. Without this they would fall into the catch-all below and every
+     * 404 would leave here as a 500.
+     */
+    @Override
+    protected ResponseEntity<Object> handleExceptionInternal(Exception e, Object body, HttpHeaders headers,
+                                                             HttpStatusCode status, WebRequest request) {
+        ResponseEntity<Object> response = super.handleExceptionInternal(e, body, headers, status, request);
+        if (response != null && response.getBody() instanceof ProblemDetail problem) {
+            ProblemCode code = codeFor(status);
+            problem.setType(java.net.URI.create(code.type()));
+            problem.setProperty("code", code.name());
+        }
+        return response;
+    }
+
+    private static ProblemCode codeFor(HttpStatusCode status) {
+        if (status.isSameCodeAs(HttpStatus.NOT_FOUND)) {
+            return ProblemCode.RESOURCE_NOT_FOUND;
+        }
+        if (status.isSameCodeAs(HttpStatus.METHOD_NOT_ALLOWED)) {
+            return ProblemCode.METHOD_NOT_ALLOWED;
+        }
+        if (status.isSameCodeAs(HttpStatus.PAYLOAD_TOO_LARGE)) {
+            return ProblemCode.PAYLOAD_TOO_LARGE;
+        }
+        return status.is4xxClientError() ? ProblemCode.INVALID_REQUEST : ProblemCode.INTERNAL_ERROR;
     }
 
     @ExceptionHandler(Exception.class)

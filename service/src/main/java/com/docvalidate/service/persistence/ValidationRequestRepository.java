@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.transaction.annotation.Transactional;
 
 public interface ValidationRequestRepository extends JpaRepository<ValidationRequest, UUID> {
 
@@ -19,6 +20,7 @@ public interface ValidationRequestRepository extends JpaRepository<ValidationReq
      * message we have already handled. Deliberately a single statement rather than a
      * read-then-write, which would race under at-least-once delivery.
      */
+    @Transactional
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query(value = """
             UPDATE validation.validation_request

@@ -1,9 +1,14 @@
+server:
+  # uploadUrl is the contract, so it has to reflect the URL the client actually called,
+  # not the container's own host and port behind a TLS-terminating proxy.
+  forward-headers-strategy: framework
+
 spring:
   application:
     name: docvalidate
 
   datasource:
-    url: jdbc:postgresql://localhost:5432/docvalidate
+    url: jdbc:postgresql://localhost:${POSTGRES_PORT:5433}/docvalidate
     username: docvalidate
     password: docvalidate
 

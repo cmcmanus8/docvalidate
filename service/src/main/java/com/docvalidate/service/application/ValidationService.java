@@ -2,6 +2,7 @@ package com.docvalidate.service.application;
 
 import com.docvalidate.service.config.DocValidateProperties;
 import com.docvalidate.service.domain.Document;
+import com.docvalidate.service.domain.IllegalStateTransitionException;
 import com.docvalidate.service.domain.ValidationRequest;
 import com.docvalidate.service.domain.ValidationStatus;
 import com.docvalidate.service.persistence.ValidationRequestRepository;
@@ -32,7 +33,12 @@ public class ValidationService {
         this.clock = clock;
     }
 
-    @Transactional
+    /**
+     * Deliberately not {@code @Transactional}. The insert has to be able to fail and be
+     * rolled back on its own before the recovery read runs: inside one transaction, a
+     * unique-violation leaves Postgres refusing every later statement, so the read that
+     * is meant to find the winning row would fail too.
+     */
     public CreateResult create(String idempotencyKey) {
         if (idempotencyKey != null) {
             var existing = requests.findByIdempotencyKey(idempotencyKey);
@@ -45,6 +51,11 @@ public class ValidationService {
         try {
             return new CreateResult(requests.saveAndFlush(request), false);
         } catch (DataIntegrityViolationException e) {
+            if (idempotencyKey == null) {
+                // Nothing to recover by: a key-less insert can only collide on the
+                // primary key, which is a genuine fault rather than a replay.
+                throw e;
+            }
             // Two concurrent calls with the same key: the loser reads the winner's row.
             ValidationRequest winner = requests.findByIdempotencyKey(idempotencyKey).orElseThrow(() -> e);
             return new CreateResult(winner, true);
@@ -74,8 +85,16 @@ public class ValidationService {
         }
 
         if (request.isExpiredAt(now)) {
+            // Returned rather than thrown: an exception here would roll back the very
+            // transition it is reporting, leaving the request PENDING_UPLOAD forever.
             request.expire(now);
-            throw new RequestExpiredException(requestId);
+            return UploadOutcome.EXPIRED;
+        }
+
+        if (request.getStatus() != ValidationStatus.PENDING_UPLOAD) {
+            // Checked before the write. Storage is not transactional, so an upload the
+            // domain is about to reject must not overwrite bytes already on disk.
+            throw new IllegalStateTransitionException(requestId, request.getStatus(), ValidationStatus.QUEUED);
         }
 
         // Written before the transition so a storage failure leaves the request
