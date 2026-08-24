@@ -1,0 +1,32 @@
+spring:
+  application:
+    name: docvalidate
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/docvalidate
+    username: docvalidate
+    password: docvalidate
+
+  jpa:
+    # Liquibase owns the schema. Hibernate only checks the mapping still matches it.
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        default_schema: validation
+
+  liquibase:
+    change-log: classpath:db/changelog/changelog-master.xml
+
+docvalidate:
+  upload-window: PT15M
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: when-authorized

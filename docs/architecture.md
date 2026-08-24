@@ -41,8 +41,8 @@ sequenceDiagram
 ```
 service/
   api/          controllers, DTOs, error handling
-  domain/       ValidationRequest aggregate, status machine, value objects
-  persistence/  JPA entities, repositories, Liquibase changelogs
+  domain/       ValidationRequest aggregate, status machine, entities
+  persistence/  repositories, Liquibase changelogs
   messaging/    JobPublisher / JobConsumer ports + Kafka and local adapters
   storage/      DocumentStorage port + filesystem adapter
   processing/   DocumentValidator (deterministic stub)
@@ -51,6 +51,13 @@ service/
 The dependency rule is one-way: `api` and `messaging` depend on `domain`;
 `domain` depends on nothing. Adapters are the only classes that know Kafka or
 the filesystem exist.
+
+The JPA annotations sit on the domain classes rather than on a parallel set of
+persistence entities that get mapped back and forth. At this size the mapping
+layer would cost more than it buys, and the thing worth protecting is that the
+aggregate owns its transitions — not that it is ignorant of Hibernate. `domain`
+therefore holds the entities; `persistence` holds the repositories and the
+changelogs.
 
 ## Status machine
 

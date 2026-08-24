@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                            http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+    <changeSet id="004-validation-result" author="calum">
+        <createTable tableName="validation_result" schemaName="validation">
+            <column name="id" type="uuid">
+                <constraints primaryKey="true" primaryKeyName="pk_validation_result"/>
+            </column>
+            <!-- Unique on request_id is what makes duplicate job delivery a database error
+                 rather than two result rows, independently of the conditional claim. -->
+            <column name="request_id" type="uuid">
+                <constraints nullable="false" unique="true" uniqueConstraintName="ux_validation_result_request_id"
+                             foreignKeyName="fk_validation_result_request"
+                             referencedTableSchemaName="validation"
+                             referencedTableName="validation_request"
+                             referencedColumnNames="id"/>
+            </column>
+            <column name="verdict" type="varchar(32)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="reason" type="varchar(255)"/>
+            <column name="extracted_fields" type="jsonb" defaultValue="{}">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_at" type="timestamptz">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+
+        <rollback>
+            <dropTable tableName="validation_result" schemaName="validation"/>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>
