@@ -12,7 +12,7 @@ import org.springframework.transaction.event.TransactionalEventListener;
  * with no message sent - work stranded rather than phantom, which is the better failure.
  *
  * <p>Stranded work is still a gap. The fix is a transactional outbox plus a sweeper for
- * rows left QUEUED past a threshold; both are named in the README as next work.
+ * rows left QUEUED past a threshold; both are listed under Next work in docs/architecture.md.
  */
 @Component
 class JobDispatcher {

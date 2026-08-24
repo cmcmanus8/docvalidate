@@ -2,7 +2,7 @@ package com.docvalidate.service.persistence;
 
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
-import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.TestPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -12,7 +12,10 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * expensive part of these tests and the schema is rebuilt by Liquibase anyway.
  */
 @Testcontainers
-@ActiveProfiles("local")
+@TestPropertySource(properties = {
+        "docvalidate.messaging=local",
+        "docvalidate.sweeper.enabled=false"
+})
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE)
 public abstract class PostgresTestBase {
 

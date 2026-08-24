@@ -1,11 +1,11 @@
 package com.docvalidate.service.messaging;
 
-import org.springframework.context.annotation.Profile;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 
 @Component
-@Profile("kafka")
+@ConditionalOnProperty(name = "docvalidate.messaging", havingValue = "kafka", matchIfMissing = true)
 class KafkaJobListener {
 
     private final JobConsumer consumer;

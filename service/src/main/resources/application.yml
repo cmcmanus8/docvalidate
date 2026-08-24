@@ -7,18 +7,23 @@ spring:
   application:
     name: docvalidate
 
-  profiles:
-    # Kafka is the default path. The in-memory adapter takes over whenever this
-    # profile is off, which is what every test but one runs against.
-    default: kafka
-
   kafka:
     bootstrap-servers: localhost:9092
     producer:
       value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      properties:
+        # Bounds how long a publish blocks with the broker down. The default is 60s,
+        # which would hold the request thread of an upload that has already committed.
+        max.block.ms: 5000
+    listener:
+      # One thread per partition, otherwise the three partitions are served serially.
+      concurrency: 3
     consumer:
       group-id: docvalidate-workers
       auto-offset-reset: earliest
+      # Each job pauses deliberately, so a large batch would outlast max.poll.interval.ms
+      # and get the consumer evicted from the group mid-backlog.
+      max-poll-records: 10
       value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
       properties:
         spring.json.trusted.packages: com.docvalidate.service.messaging
@@ -42,10 +47,17 @@ spring:
     change-log: classpath:db/changelog/changelog-master.xml
 
 docvalidate:
+  # Which JobPublisher is wired: kafka, or local for an in-memory adapter with no broker.
+  # Deliberately a property rather than a profile - as a profile it became the silent
+  # default of every profile that was not called "kafka".
+  messaging: kafka
   upload-window: PT15M
   max-upload-size: 10MB
   storage-root: ./.data
   jobs-topic: docvalidate.validation-jobs
+  sweeper:
+    enabled: true
+    interval: PT1M
   # Makes the asynchronous lifecycle observable rather than instant.
   processing-delay: PT1S
   allowed-content-types:

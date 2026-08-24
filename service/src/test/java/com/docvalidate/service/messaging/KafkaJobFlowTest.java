@@ -12,7 +12,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
-import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
@@ -25,9 +24,10 @@ import org.testcontainers.kafka.KafkaContainer;
  * prove the behaviour without waiting 20 seconds for a container.
  */
 @Testcontainers
-@ActiveProfiles("kafka")
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE)
 @TestPropertySource(properties = {
+        "docvalidate.messaging=kafka",
+        "docvalidate.sweeper.enabled=false",
         "docvalidate.storage-root=build/test-storage",
         "docvalidate.processing-delay=PT0S"
 })

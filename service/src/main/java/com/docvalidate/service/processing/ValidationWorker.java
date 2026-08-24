@@ -19,7 +19,12 @@ class ValidationWorker implements JobConsumer {
 
     @Override
     public void onJob(ValidationJob job) {
-        pause();
+        if (!pause()) {
+            // Interrupted mid-pause: the application is shutting down. Carrying on would
+            // reach the connection pool with the interrupt flag set and fail there
+            // instead. Not acking means the job is redelivered, which is the point.
+            return;
+        }
         processor.process(job);
     }
 
@@ -28,14 +33,16 @@ class ValidationWorker implements JobConsumer {
      * observable: without it the work often finishes before the SDK's first poll and
      * waitForCompletion would pass without ever having waited for anything.
      */
-    private void pause() {
+    private boolean pause() {
         if (delay.isZero() || delay.isNegative()) {
-            return;
+            return true;
         }
         try {
             Thread.sleep(delay.toMillis());
+            return true;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+            return false;
         }
     }
 }

@@ -81,6 +81,11 @@ and a problem body naming both the current and the attempted state.
 
 `COMPLETED`, `FAILED` and `EXPIRED` are terminal.
 
+Expiry is swept, not merely lazy. A scheduled job moves abandoned requests out of
+`PENDING_UPLOAD` on a fixed delay, using the index on `status`. Leaving it to
+fire only when a late caller happens to retry would have made `EXPIRED` a status
+the lifecycle could reach by accident rather than one it actually enforces.
+
 The guard lives on the aggregate as `ValidationRequest.transitionTo(next)`,
 not as scattered `if` checks in the service layer. Invalid transitions throw
 `IllegalStateTransitionException`, which the advice maps to 409. This keeps the
@@ -143,8 +148,8 @@ public interface JobConsumer  { void onJob(ValidationJob job); }
 
 | Adapter | Profile | Use |
 |---|---|---|
-| `KafkaJobPublisher` | `kafka` (default) | Local runs and the demo |
-| `LocalJobPublisher` | anything without `kafka` | Tests, and running without a broker |
+| `KafkaJobPublisher` | `docvalidate.messaging=kafka` (default) | Local runs and the demo |
+| `LocalJobPublisher` | `docvalidate.messaging=local` | Tests, and running without a broker |
 
 `LocalJobPublisher` exists for a reason beyond convenience: a port with one
 implementation is an assertion, not a demonstration. Two adapters prove the
@@ -154,9 +159,11 @@ WebMvc tests broker-free, so only one integration test pays Kafka startup.
 The consumer is identical on both paths. Swapping to MSK later is a
 configuration change plus a new `JobPublisher` bean; no domain code moves.
 
-Selecting on `kafka` and `!kafka` rather than on two named profiles means exactly
-one publisher bean always exists: forgetting to name a profile fails over to the
-in-memory adapter instead of failing to start with no `JobPublisher` at all.
+The adapter is chosen by a property, not a profile. As a profile it became the
+silent default of every profile that was not called `kafka` - a deployment run
+under `prod` would have started happily with an in-memory publisher and no
+durability. A property says what it means, an unrecognised value starts nothing
+at all, and the in-memory adapter logs a warning on the way up.
 
 Jobs go to `docvalidate.validation-jobs`, three partitions, keyed by `requestId`
 so redeliveries of one request stay ordered relative to each other while separate
@@ -175,12 +182,15 @@ work is stranded rather than phantom.
 That is the better failure to have, but it is still a gap. The correct fix is a
 transactional outbox — write the message to an outbox table in the same
 transaction, relay it separately — plus a sweeper that re-publishes rows stuck
-in `QUEUED` past a threshold. Deliberately out of scope here; noted in the
-README as next work.
+in `QUEUED` past a threshold. Deliberately out of scope here; listed
+under Next work below.
 
 ### Failure handling
 
 A validator error marks the request `FAILED` with a reason and acks the message.
+The verdict on that result is `ERROR`, not `INVALID`: a document we never managed
+to read has not been judged, and telling the caller their valid PDF was rejected
+because our storage blinked would be a lie.
 It does not rethrow. Rethrowing on a non-transient failure would redeliver the
 same poison message forever and block the partition. The consequence is that a
 genuinely transient fault is also recorded as `FAILED` rather than retried; a
@@ -304,3 +314,19 @@ happened to finish before the first poll.
 | Content re-upload | `409` on digest mismatch | Overwrite | Silent substitution under an in-flight validation |
 | Migrations | Liquibase | Flyway | Brief prefers it; no reason to diverge |
 | Result storage | Separate table | Nullable columns | Absence of a row models "not yet" honestly |
+
+## Next work
+
+Named rather than hidden, in the order I would do them:
+
+1. **Transactional outbox.** Publishing after commit trades phantom jobs for
+   stranded ones; the outbox plus a relay removes both, and a sweeper over rows
+   stuck in `QUEUED` closes the window that remains.
+2. **Retry topic and DLQ.** Today a transient fault is recorded as `FAILED`
+   exactly like a permanent one, because retrying in place would block the
+   partition.
+3. **Presigned S3 uploads.** The storage port is already shaped for it. That is
+   also the point at which `confirm` earns its place.
+4. **Auth.** JWT or an API key in front of the API; deliberately absent here,
+   since the brief asks for it only if present.
+5. **OpenAPI.** springdoc gives a Swagger UI for perhaps fifteen minutes' work.

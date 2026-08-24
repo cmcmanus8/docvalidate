@@ -94,4 +94,17 @@ class ValidationServiceIntegrationTest extends PostgresTestBase {
         requests.claimForProcessing(requestId, Instant.now());
         return requestId;
     }
+
+    @Test
+    void theSweeperExpiresRequestsNobodyCameBackFor() {
+        UUID abandoned = validations.create(null).request().getId();
+        assertThat(requests.findById(abandoned).orElseThrow().getStatus())
+                .isEqualTo(ValidationStatus.PENDING_UPLOAD);
+
+        int expired = requests.expireAbandoned(Instant.now());
+
+        assertThat(expired).isPositive();
+        assertThat(requests.findById(abandoned).orElseThrow().getStatus())
+                .isEqualTo(ValidationStatus.EXPIRED);
+    }
 }

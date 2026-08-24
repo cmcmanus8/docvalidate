@@ -89,9 +89,14 @@ public class ValidationRequest {
         this.result = new ValidationResult(this, Verdict.VALID, null, extractedFields, now);
     }
 
-    public void fail(String reason, Instant now) {
+    /**
+     * The verdict is a parameter because FAILED covers two different things: a document
+     * we read and rejected, and a document we never managed to judge. Telling a caller
+     * their valid PDF is INVALID because our storage was unreachable would be a lie.
+     */
+    public void fail(Verdict verdict, String reason, Instant now) {
         transitionTo(ValidationStatus.FAILED, now);
-        this.result = new ValidationResult(this, Verdict.INVALID, reason, Map.of(), now);
+        this.result = new ValidationResult(this, verdict, reason, Map.of(), now);
     }
 
     public void expire(Instant now) {

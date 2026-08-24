@@ -28,4 +28,18 @@ public interface ValidationRequestRepository extends JpaRepository<ValidationReq
              WHERE id = :id AND status = 'QUEUED'
             """, nativeQuery = true)
     int claimForProcessing(@Param("id") UUID id, @Param("now") Instant now);
+
+    /**
+     * Closes the upload window on requests nobody came back for. Set-based rather than
+     * loaded-and-looped: there is no per-row decision to make, and the index on status
+     * exists for exactly this query.
+     */
+    @Transactional
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(value = """
+            UPDATE validation.validation_request
+               SET status = 'EXPIRED', updated_at = :now, version = version + 1
+             WHERE status = 'PENDING_UPLOAD' AND expires_at < :now
+            """, nativeQuery = true)
+    int expireAbandoned(@Param("now") Instant now);
 }
