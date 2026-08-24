@@ -34,7 +34,9 @@
     "test:watch": "vitest",
     "check:exports": "attw --pack .",
     "check:publish": "publint",
-    "verify": "npm run typecheck && npm run test && npm run build && npm run check:exports && npm run check:publish"
+    "verify": "npm run typecheck && npm run test && npm run build && npm run smoke && npm run check:exports && npm run check:publish",
+    "smoke": "node examples/dual-build-smoke.mjs && node examples/dual-build-smoke.cjs",
+    "example": "node examples/validate.ts"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.5",

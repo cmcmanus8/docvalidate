@@ -5,6 +5,8 @@ import { isTerminal, type CreateValidationResponse, type Validation } from './ty
 export interface DocValidateClientOptions {
   /** e.g. http://localhost:8080 - the /api/v1 prefix is the SDK's business, not yours. */
   baseUrl: string;
+  /** Sent on every request: an API key, a tenant id, a trace header. */
+  headers?: Record<string, string>;
   /** Per-attempt timeout. Defaults to 30s. */
   timeoutMs?: number;
   retry?: Partial<RetryOptions>;
@@ -17,7 +19,7 @@ export interface DocValidateClientOptions {
 export interface DocumentInput {
   filename: string;
   contentType: string;
-  content: Uint8Array | ArrayBuffer | string;
+  content: Uint8Array | ArrayBuffer | Blob | string;
 }
 
 export interface WaitOptions {
@@ -39,6 +41,7 @@ export class DocValidateClient {
     this.http = new HttpClient({
       baseUrl: options.baseUrl.replace(/\/+$/, ''),
       fetch: options.fetch ?? globalThis.fetch.bind(globalThis),
+      headers: options.headers ?? {},
       timeoutMs: options.timeoutMs ?? 30_000,
       retry: { ...DEFAULT_RETRY, ...options.retry },
       sleep,
@@ -50,17 +53,18 @@ export class DocValidateClient {
    * @param idempotencyKey replaying the same key returns the same request rather than
    *   creating a second one - which is also what makes this call safe to retry.
    */
-  async createValidation(idempotencyKey?: string): Promise<CreateValidationResponse> {
+  async createValidation(idempotencyKey?: string, signal?: AbortSignal): Promise<CreateValidationResponse> {
     return this.http.send<CreateValidationResponse>({
       method: 'POST',
       path: '/api/v1/validations',
       ...(idempotencyKey === undefined ? {} : { headers: { 'idempotency-key': idempotencyKey } }),
       idempotent: idempotencyKey !== undefined,
+      signal,
     });
   }
 
   async uploadDocument(requestId: string, document: DocumentInput, signal?: AbortSignal): Promise<Validation> {
-    const body = toBytes(document.content);
+    const body = await toBytes(document.content);
     return this.http.send<Validation>({
       method: 'PUT',
       path: `/api/v1/validations/${encodeURIComponent(requestId)}/content`,
@@ -115,7 +119,7 @@ export class DocValidateClient {
     document: DocumentInput,
     options: WaitOptions & { idempotencyKey?: string } = {},
   ): Promise<Validation> {
-    const created = await this.createValidation(options.idempotencyKey);
+    const created = await this.createValidation(options.idempotencyKey, options.signal);
     await this.uploadDocument(created.requestId, document, options.signal);
     return this.waitForCompletion(created.requestId, options);
   }
@@ -123,9 +127,10 @@ export class DocValidateClient {
 
 /** An ArrayBuffer rather than a view: a Uint8Array is not a BodyInit, and a view can
  *  cover part of a larger buffer, which would put the wrong bytes on the wire. */
-function toBytes(content: Uint8Array | ArrayBuffer | string): ArrayBuffer {
+async function toBytes(content: Uint8Array | ArrayBuffer | Blob | string): Promise<ArrayBuffer> {
   if (typeof content === 'string') return toBytes(new TextEncoder().encode(content));
   if (content instanceof ArrayBuffer) return content;
+  if (content instanceof Blob) return content.arrayBuffer();
   return content.buffer.slice(content.byteOffset, content.byteOffset + content.byteLength) as ArrayBuffer;
 }
 

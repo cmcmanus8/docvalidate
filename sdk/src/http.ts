@@ -14,6 +14,8 @@ export interface RetryOptions {
 export interface HttpOptions {
   baseUrl: string;
   fetch: FetchLike;
+  /** Sent on every request. Where an API key or a trace header goes. */
+  headers: Record<string, string>;
   timeoutMs: number;
   retry: RetryOptions;
   /** Injectable so tests do not spend real time asleep. */
@@ -77,7 +79,11 @@ export class HttpClient {
 
     return this.options.fetch(`${this.options.baseUrl}${spec.path}`, {
       method: spec.method,
-      headers: { accept: 'application/json, application/problem+json', ...spec.headers },
+      headers: {
+        accept: 'application/json, application/problem+json',
+        ...this.options.headers,
+        ...spec.headers,
+      },
       ...(spec.body === undefined ? {} : { body: spec.body }),
       signal,
     });

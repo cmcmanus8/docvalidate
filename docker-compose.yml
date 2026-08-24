@@ -18,10 +18,11 @@ services:
       retries: 10
 
   kafka:
-    image: confluentinc/cp-kafka:7.7.1
+    # Same image the Kafka integration test uses, so the repo pins one broker version.
+    image: apache/kafka:3.8.1
     container_name: docvalidate-kafka
     ports:
-      - "9092:9092"
+      - "${KAFKA_PORT:-9092}:9092"
     environment:
       # Single-node KRaft: no ZooKeeper.
       CLUSTER_ID: docvalidate-local-cluster
@@ -37,9 +38,8 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
     healthcheck:
-      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 >/dev/null 2>&1"]
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 >/dev/null 2>&1"]
       interval: 10s
       timeout: 5s
       retries: 12

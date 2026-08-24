@@ -184,3 +184,41 @@ describe('validate', () => {
     expect(calls.map((c) => c.method)).toEqual(['POST', 'PUT', 'GET']);
   });
 });
+
+describe('options', () => {
+  it('sends the configured headers on every request, and lets per-call ones win', async () => {
+    const { fetch, calls } = stubFetch([{ status: 200, body: validation('COMPLETED') }]);
+    const sdk = new DocValidateClient({
+      baseUrl: 'http://localhost:8080',
+      headers: { 'x-api-key': 'secret', accept: 'text/plain' },
+      fetch,
+    });
+
+    await sdk.getValidation(REQUEST_ID);
+
+    expect(calls[0]?.headers['x-api-key']).toBe('secret');
+    expect(calls[0]?.headers['accept']).toBe('text/plain');
+  });
+
+  it('accepts a Blob as document content', async () => {
+    const { client: sdk, calls } = client([{ status: 202, body: validation('QUEUED') }]);
+
+    await sdk.uploadDocument(REQUEST_ID, {
+      filename: 'a.pdf',
+      contentType: 'application/pdf',
+      content: new Blob(['blob bytes']),
+    });
+
+    expect(calls[0]?.body).toBe('blob bytes');
+    expect(calls[0]?.headers['content-length']).toBe('10');
+  });
+
+  it('stops polling when the caller aborts', async () => {
+    const controller = new AbortController();
+    const { fetch } = stubFetch([new DOMException('This operation was aborted', 'AbortError')]);
+    const sdk = new DocValidateClient({ baseUrl: 'http://localhost:8080', fetch, sleep: async () => {} });
+    controller.abort();
+
+    await expect(sdk.getValidation(REQUEST_ID, controller.signal)).rejects.toBeInstanceOf(NetworkError);
+  });
+});
