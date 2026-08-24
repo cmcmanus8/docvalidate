@@ -8,6 +8,7 @@ import static org.mockito.Mockito.verify;
 import com.docvalidate.service.config.DocValidateProperties;
 import jakarta.servlet.FilterChain;
 import java.time.Duration;
+import java.util.Set;
 import java.nio.file.Path;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -18,7 +19,8 @@ import org.springframework.util.unit.DataSize;
 class UploadSizeLimitFilterTest {
 
     private final UploadSizeLimitFilter filter = new UploadSizeLimitFilter(
-            new DocValidateProperties(Duration.ofMinutes(15), DataSize.ofKilobytes(1), Path.of("./.data")));
+            new DocValidateProperties(Duration.ofMinutes(15), DataSize.ofKilobytes(1), Path.of("./.data"),
+                    "jobs", Duration.ZERO, Set.of("application/pdf")));
 
     private static MockHttpServletRequest upload() {
         return new MockHttpServletRequest("PUT", "/api/v1/validations/" + UUID.randomUUID() + "/content");

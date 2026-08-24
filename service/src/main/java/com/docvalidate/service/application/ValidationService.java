@@ -13,6 +13,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.HexFormat;
 import java.util.UUID;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -23,13 +24,15 @@ public class ValidationService {
     private final ValidationRequestRepository requests;
     private final DocumentStorage storage;
     private final DocValidateProperties properties;
+    private final ApplicationEventPublisher events;
     private final Clock clock;
 
     public ValidationService(ValidationRequestRepository requests, DocumentStorage storage,
-                             DocValidateProperties properties, Clock clock) {
+                             DocValidateProperties properties, ApplicationEventPublisher events, Clock clock) {
         this.requests = requests;
         this.storage = storage;
         this.properties = properties;
+        this.events = events;
         this.clock = clock;
     }
 
@@ -101,6 +104,10 @@ public class ValidationService {
         // still awaiting an upload rather than QUEUED with nothing behind it.
         String storageKey = storage.store(requestId, filename, content);
         request.attachDocument(filename, contentType, content.length, digest, storageKey, now);
+
+        // The listener is AFTER_COMMIT, so nothing reaches the broker for a transaction
+        // that later rolls back.
+        events.publishEvent(new ValidationQueuedEvent(requestId));
         return UploadOutcome.ACCEPTED;
     }
 

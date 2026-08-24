@@ -7,6 +7,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.Test;
@@ -19,7 +20,8 @@ class LocalFilesystemStorageTest {
 
     private LocalFilesystemStorage storage() {
         return new LocalFilesystemStorage(
-                new DocValidateProperties(Duration.ofMinutes(15), DataSize.ofMegabytes(10), root));
+                new DocValidateProperties(Duration.ofMinutes(15), DataSize.ofMegabytes(10), root,
+                        "jobs", Duration.ZERO, Set.of("application/pdf")));
     }
 
     @Test

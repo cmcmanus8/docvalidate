@@ -144,7 +144,7 @@ public interface JobConsumer  { void onJob(ValidationJob job); }
 | Adapter | Profile | Use |
 |---|---|---|
 | `KafkaJobPublisher` | `kafka` (default) | Local runs and the demo |
-| `LocalJobPublisher` | `local` | Tests, and running without a broker |
+| `LocalJobPublisher` | anything without `kafka` | Tests, and running without a broker |
 
 `LocalJobPublisher` exists for a reason beyond convenience: a port with one
 implementation is an assertion, not a demonstration. Two adapters prove the
@@ -153,6 +153,15 @@ WebMvc tests broker-free, so only one integration test pays Kafka startup.
 
 The consumer is identical on both paths. Swapping to MSK later is a
 configuration change plus a new `JobPublisher` bean; no domain code moves.
+
+Selecting on `kafka` and `!kafka` rather than on two named profiles means exactly
+one publisher bean always exists: forgetting to name a profile fails over to the
+in-memory adapter instead of failing to start with no `JobPublisher` at all.
+
+Jobs go to `docvalidate.validation-jobs`, three partitions, keyed by `requestId`
+so redeliveries of one request stay ordered relative to each other while separate
+requests still process in parallel. The topic is created on startup, so a fresh
+checkout needs no broker admin step.
 
 ### Publishing after commit
 

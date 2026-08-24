@@ -7,6 +7,23 @@ spring:
   application:
     name: docvalidate
 
+  profiles:
+    # Kafka is the default path. The in-memory adapter takes over whenever this
+    # profile is off, which is what every test but one runs against.
+    default: kafka
+
+  kafka:
+    bootstrap-servers: localhost:9092
+    producer:
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+    consumer:
+      group-id: docvalidate-workers
+      auto-offset-reset: earliest
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: com.docvalidate.service.messaging
+        spring.json.value.default.type: com.docvalidate.service.messaging.ValidationJob
+
   datasource:
     url: jdbc:postgresql://localhost:${POSTGRES_PORT:5433}/docvalidate
     username: docvalidate
@@ -28,6 +45,14 @@ docvalidate:
   upload-window: PT15M
   max-upload-size: 10MB
   storage-root: ./.data
+  jobs-topic: docvalidate.validation-jobs
+  # Makes the asynchronous lifecycle observable rather than instant.
+  processing-delay: PT1S
+  allowed-content-types:
+    - application/pdf
+    - image/png
+    - image/jpeg
+    - text/plain
 
 management:
   endpoints:

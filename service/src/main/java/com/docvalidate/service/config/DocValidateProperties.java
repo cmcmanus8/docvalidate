@@ -2,9 +2,11 @@ package com.docvalidate.service.config;
 
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.Set;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.util.unit.DataSize;
 
 @ConfigurationProperties(prefix = "docvalidate")
-public record DocValidateProperties(Duration uploadWindow, DataSize maxUploadSize, Path storageRoot) {
+public record DocValidateProperties(Duration uploadWindow, DataSize maxUploadSize, Path storageRoot,
+                                    String jobsTopic, Duration processingDelay, Set<String> allowedContentTypes) {
 }
