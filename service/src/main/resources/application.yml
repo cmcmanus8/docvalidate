@@ -21,6 +21,8 @@ spring:
 
 docvalidate:
   upload-window: PT15M
+  max-upload-size: 10MB
+  storage-root: ./.data
 
 management:
   endpoints:

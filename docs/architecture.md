@@ -41,6 +41,7 @@ sequenceDiagram
 ```
 service/
   api/          controllers, DTOs, error handling
+  application/  use-case services orchestrating domain, persistence and ports
   domain/       ValidationRequest aggregate, status machine, entities
   persistence/  repositories, Liquibase changelogs
   messaging/    JobPublisher / JobConsumer ports + Kafka and local adapters
@@ -217,9 +218,21 @@ Base path `/api/v1`.
 | Method | Path | Behaviour |
 |---|---|---|
 | `POST` | `/validations` | Create. Returns `requestId`, `uploadUrl`, `status`, `expiresAt` |
-| `PUT` | `/validations/{requestId}/content` | Upload bytes. `202` on accept |
+| `PUT` | `/validations/{requestId}/content` | Upload bytes. `202` on accept, `200` on replay |
 | `GET` | `/validations/{requestId}` | Status, plus result once terminal |
 | `GET` | `/actuator/health` | Liveness |
+
+The upload is a raw body rather than multipart, carrying its metadata in the two
+headers a presigned S3 `PUT` would use anyway: `Content-Type`, and
+`Content-Disposition` for the filename. A missing filename is a `400` rather than
+a guessed default, since the filename ends up in the stored key and in the
+verdict. Media-type parameters are dropped before storage, so a client sending
+`application/pdf;charset=UTF-8` and one sending `application/pdf` are the same
+document to the allowed-type check.
+
+Uploads are capped at 10MB. The cap is enforced twice: a filter rejects an
+oversized `Content-Length` before the body is buffered, and the service checks
+the actual length again because a chunked request arrives without one.
 
 `POST /validations/{requestId}/confirm` is intentionally **not** implemented.
 With a service-hosted `PUT` the upload response is itself the confirmation, so a
