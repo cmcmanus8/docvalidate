@@ -7,6 +7,7 @@ import {
   NetworkError,
   ServiceError,
   ValidationNotFoundError,
+  UnknownEndpointError,
   ValidationTimeoutError,
 } from '../src/errors.js';
 import { stubFetch, validation, type StubResponse } from './support.js';
@@ -80,7 +81,8 @@ describe('uploadDocument', () => {
     expect(call.method).toBe('PUT');
     expect(call.url).toBe(`http://localhost:8080/api/v1/validations/${REQUEST_ID}/content`);
     expect(call.headers['content-type']).toBe('application/pdf');
-    expect(call.headers['content-disposition']).toBe('attachment; filename="march invoice.pdf"');
+    expect(call.headers['content-disposition'])
+      .toBe('attachment; filename="march invoice.pdf"; filename*=UTF-8\'\'march%20invoice.pdf');
     expect(call.headers['content-length']).toBe('5');
     expect(call.body).toBe('hello');
   });
@@ -136,6 +138,18 @@ describe('errors', () => {
 
     await expect(sdk.getValidation(REQUEST_ID)).rejects.toBeInstanceOf(ValidationNotFoundError);
     expect(calls).toHaveLength(1);
+  });
+});
+
+describe('404s', () => {
+  it('separates a missing request from a missing route', async () => {
+    const missingRequest = client([{ status: 404, body: { code: 'VALIDATION_NOT_FOUND' } }]);
+    await expect(missingRequest.client.getValidation(REQUEST_ID))
+      .rejects.toBeInstanceOf(ValidationNotFoundError);
+
+    const missingRoute = client([{ status: 404, body: { code: 'RESOURCE_NOT_FOUND' } }]);
+    await expect(missingRoute.client.getValidation(REQUEST_ID))
+      .rejects.toBeInstanceOf(UnknownEndpointError);
   });
 });
 
@@ -233,6 +247,94 @@ describe('validate replaying a key', () => {
 
     expect(result.status).toBe('COMPLETED');
     expect(calls.map((c) => c.method)).toEqual(['POST', 'GET']);
+  });
+});
+
+describe('Retry-After', () => {
+  it('waits as long as the service asks, past the ordinary backoff ceiling', async () => {
+    const slept: number[] = [];
+    const { fetch } = stubFetch([
+      { status: 503, body: { code: 'INTERNAL_ERROR' }, headers: { 'retry-after': '30' } },
+      { status: 200, body: validation('COMPLETED') },
+    ]);
+    const sdk = new DocValidateClient({
+      baseUrl: 'http://localhost:8080',
+      fetch,
+      sleep: async (ms) => { slept.push(ms); },
+      random: () => 1,
+    });
+
+    await sdk.getValidation(REQUEST_ID);
+
+    expect(slept).toEqual([30_000]);
+  });
+
+  it('understands the HTTP-date form that proxies send', async () => {
+    const slept: number[] = [];
+    const when = new Date(Date.now() + 20_000).toUTCString();
+    const { fetch } = stubFetch([
+      { status: 503, body: {}, headers: { 'retry-after': when } },
+      { status: 200, body: validation('COMPLETED') },
+    ]);
+    const sdk = new DocValidateClient({
+      baseUrl: 'http://localhost:8080',
+      fetch,
+      sleep: async (ms) => { slept.push(ms); },
+    });
+
+    await sdk.getValidation(REQUEST_ID);
+
+    expect(slept[0]).toBeGreaterThan(15_000);
+    expect(slept[0]).toBeLessThanOrEqual(20_000);
+  });
+
+  it('will not be parked indefinitely by a hostile Retry-After', async () => {
+    const slept: number[] = [];
+    const { fetch } = stubFetch([
+      { status: 429, body: {}, headers: { 'retry-after': '86400' } },
+      { status: 200, body: validation('COMPLETED') },
+    ]);
+    const sdk = new DocValidateClient({
+      baseUrl: 'http://localhost:8080',
+      fetch,
+      retry: { maxRetryAfterMs: 10_000 },
+      sleep: async (ms) => { slept.push(ms); },
+    });
+
+    await sdk.getValidation(REQUEST_ID);
+
+    expect(slept).toEqual([10_000]);
+  });
+});
+
+describe('hostile inputs', () => {
+  it('encodes a non-ASCII filename instead of throwing inside fetch', async () => {
+    const { client: sdk, calls } = client([{ status: 202, body: validation('QUEUED') }]);
+
+    await sdk.uploadDocument(REQUEST_ID, {
+      filename: 'facturé-日本.pdf',
+      contentType: 'application/pdf',
+      content: 'x',
+    });
+
+    const disposition = calls[0]?.headers['content-disposition'] ?? '';
+    // Every byte has to be Latin-1 representable or fetch rejects the header outright.
+    expect(() => new TextEncoder().encode(disposition).every((b) => b < 256)).not.toThrow();
+    expect(disposition).toContain("filename*=UTF-8''");
+    expect(disposition).toMatch(/filename="[\x20-\x7E]+"/);
+  });
+
+  it('refuses to hand back an empty body typed as a Validation', async () => {
+    const { client: sdk } = client([{ status: 200 }]);
+
+    await expect(sdk.getValidation(REQUEST_ID)).rejects.toBeInstanceOf(ServiceError);
+  });
+
+  it('refuses to hand back an unparseable body', async () => {
+    const { fetch } = stubFetch([{ status: 200, body: undefined }]);
+    const sdk = new DocValidateClient({ baseUrl: 'http://localhost:8080', fetch, sleep: async () => {} });
+
+    await expect(sdk.getValidation(REQUEST_ID)).rejects.toBeInstanceOf(ServiceError);
   });
 });
 

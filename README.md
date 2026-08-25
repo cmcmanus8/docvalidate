@@ -2,7 +2,7 @@
 
 An asynchronous document-validation slice: a Spring Boot service that accepts a
 document and judges it off the request thread, and a TypeScript SDK that talks to
-it. Java 21, Postgres, Kafka, and a client package a consumer would not resent.
+it. Java 21, Postgres, Kafka.
 
 The interesting part is not the validation - that is a deterministic stub. It is
 the lifecycle around it: accepting work, finishing it later, and being honest
@@ -10,11 +10,14 @@ about what happens when a step fails in between.
 
 ## Run it
 
+You need Java 21, a running Docker daemon, and ports 5433, 9092 and 8080 free.
+The demo script also uses `jq`.
+
 Two containers and a Gradle task:
 
 ```bash
 docker compose up -d                  # Postgres on 5433, Kafka on 9092
-cd service && ./gradlew bootRun
+cd service && ./gradlew bootRun       # blocks: the demo below wants a second terminal
 ```
 
 Postgres maps to **5433**, not 5432, because a developer machine very often
@@ -30,7 +33,9 @@ That walks the whole path with `curl`: create, replay the idempotency key, uploa
 re-upload the same bytes, try to swap the document, and poll to a verdict. It is
 the fastest way to see what the service actually promises.
 
-Interactive API docs, once it is running: **<http://localhost:8080/swagger-ui.html>**.
+Interactive API docs, once it is running:
+**<http://localhost:8080/swagger-ui/index.html>** (`/swagger-ui.html` redirects
+there), and the raw document at `/v3/api-docs`.
 
 Without a broker:
 
@@ -45,13 +50,15 @@ property, not a profile - see [Trade-offs](#trade-offs).
 ## Test it
 
 ```bash
-cd service && ./gradlew test     # 52 tests: domain, WebMvc slice, Postgres, one Kafka
-cd sdk && npm install && npm run verify
+cd service && ./gradlew test     # 53 tests: domain, WebMvc slice, Postgres, one Kafka
+cd sdk && npm ci && npm run verify
 ```
 
 `npm run verify` is typecheck, tests, build, an ESM and a CJS smoke import,
 `attw` and `publint`. The service tests use Testcontainers, so they need a Docker
-daemon; the first run pulls Postgres and Kafka images.
+daemon; the first run pulls Postgres and Kafka images and takes a few minutes.
+Kafka logs a handful of connection warnings as its test container shuts down -
+they arrive just before `BUILD SUCCESSFUL` and mean nothing.
 
 ## Use the SDK
 
@@ -112,8 +119,9 @@ asynchrony is visible rather than theoretical.
 would let a job reach the broker for a write that then rolled back, and the
 consumer would chase a `requestId` that does not exist. After it, an unreachable
 broker leaves the row `QUEUED` with no message sent: the work is stranded rather
-than phantom. That is the better failure, but it is still a gap, and a
-transactional outbox is the fix. Named, not hidden.
+than phantom. That is the better failure to have, and it is still a failure -
+nothing currently detects a stranded request, which is why the outbox heads the
+list below.
 
 **At-least-once delivery with an idempotent claim.** The worker takes a job with
 a conditional `UPDATE ... WHERE status = 'QUEUED'`. Zero rows means someone else
@@ -127,16 +135,23 @@ adapter a drop-in, and it keeps the happy path free of an AWS account.
 
 **Idempotency is a documented contract, not a hope.** `Idempotency-Key` on create
 returns the same request rather than minting a second one. A re-upload of
-identical bytes is accepted with no state change; a re-upload of *different*
-bytes is refused, because silently swapping the document under a validation that
-has already been judged is worse than an error. The SDK's retry policy is derived
+identical bytes is accepted with no state change *in any status*; different bytes
+are refused, because silently swapping the document under a validation that has
+already been judged is worse than an error. The SDK's retry policy is derived
 from those rules - it will retry a keyed create and an upload, and never an
 unkeyed create.
+
+The "any status" part was a bug I only found by auditing the docs against the
+code: the replay window originally closed when the worker claimed the job, about
+a second after upload, so the guarantee the SDK's retries lean on held for
+roughly one second.
 
 **The adapter is a property, not a profile.** An earlier version selected the
 in-memory publisher on "not the kafka profile", which quietly made it the default
 of every profile that was not called `kafka`. A deployment under `prod` would
-have started happily with no broker and no durability.
+have started happily with no broker and no durability. `docvalidate.messaging`
+says what it means, and an unrecognised value starts nothing rather than
+something worse.
 
 **No `confirm` endpoint.** The brief marks it optional. With a service-hosted
 `PUT`, the upload response is the confirmation, so implementing one would be a

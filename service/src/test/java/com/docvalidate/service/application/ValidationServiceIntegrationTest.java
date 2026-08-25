@@ -3,7 +3,6 @@ package com.docvalidate.service.application;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.docvalidate.service.domain.IllegalStateTransitionException;
 import com.docvalidate.service.domain.ValidationRequest;
 import com.docvalidate.service.domain.ValidationStatus;
 import com.docvalidate.service.persistence.PostgresTestBase;
@@ -78,10 +77,12 @@ class ValidationServiceIntegrationTest extends PostgresTestBase {
 
     @Test
     void aRejectedUploadNeverTouchesStorage() {
+        // Different bytes against a request that already holds a document: refused as a
+        // content mismatch whatever the worker is doing, and the disk stays untouched.
         UUID requestId = seedProcessingRequest();
 
         assertThatThrownBy(() -> validations.upload(requestId, "invoice.pdf", "application/pdf", "hello".getBytes()))
-                .isInstanceOf(IllegalStateTransitionException.class);
+                .isInstanceOf(ContentMismatchException.class);
 
         assertThat(Files.exists(storageRoot.resolve(requestId.toString()))).isFalse();
     }

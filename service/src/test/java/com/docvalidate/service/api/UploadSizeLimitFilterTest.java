@@ -6,6 +6,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 import com.docvalidate.service.config.DocValidateProperties;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.FilterChain;
 import java.time.Duration;
 import java.util.Set;
@@ -20,7 +21,8 @@ class UploadSizeLimitFilterTest {
 
     private final UploadSizeLimitFilter filter = new UploadSizeLimitFilter(
             new DocValidateProperties(Duration.ofMinutes(15), DataSize.ofKilobytes(1), Path.of("./.data"),
-                    "jobs", Duration.ZERO, Set.of("application/pdf")));
+                    "jobs", Duration.ZERO, Set.of("application/pdf")),
+            new ObjectMapper());
 
     private static MockHttpServletRequest upload() {
         return new MockHttpServletRequest("PUT", "/api/v1/validations/" + UUID.randomUUID() + "/content");

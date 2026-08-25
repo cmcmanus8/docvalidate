@@ -24,6 +24,14 @@ export class DocValidateError extends Error {
 /** No request with that id. */
 export class ValidationNotFoundError extends DocValidateError {}
 
+/**
+ * The service answered 404 for the URL itself rather than for a request id - a typo in
+ * baseUrl, or a version of the API that does not have this route. Deliberately not a
+ * ValidationNotFoundError: a caller catching that would conclude their document had
+ * vanished when in fact nothing was ever looked up.
+ */
+export class UnknownEndpointError extends DocValidateError {}
+
 /** The request already holds different bytes: documents are immutable once accepted. */
 export class ContentMismatchError extends DocValidateError {}
 
@@ -64,7 +72,7 @@ const BY_CODE: Record<string, new (message: string, options?: { status?: number;
   INVALID_REQUEST: InvalidRequestError,
   PAYLOAD_TOO_LARGE: InvalidRequestError,
   LENGTH_REQUIRED: InvalidRequestError,
-  RESOURCE_NOT_FOUND: ValidationNotFoundError,
+  RESOURCE_NOT_FOUND: UnknownEndpointError,
   METHOD_NOT_ALLOWED: InvalidRequestError,
   STORAGE_FAILURE: ServiceError,
   INTERNAL_ERROR: ServiceError,

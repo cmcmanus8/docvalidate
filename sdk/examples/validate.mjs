@@ -7,7 +7,14 @@
  * then, from sdk/:  npm run build && node examples/validate.ts
  */
 import { readFile } from 'node:fs/promises';
-import { DocValidateClient, ContentMismatchError, ValidationTimeoutError } from '../dist/index.js';
+// Self-referencing by package name: Node resolves this through the exports map, exactly
+// as a consumer's import would, rather than reaching into dist/ by relative path.
+import {
+  DocValidateClient,
+  ContentMismatchError,
+  NetworkError,
+  ValidationTimeoutError,
+} from '@docvalidate/sdk';
 
 const baseUrl = process.env.DOCVALIDATE_URL ?? 'http://localhost:8080';
 const client = new DocValidateClient({ baseUrl });
@@ -39,6 +46,9 @@ try {
     console.error(`Gave up while the request was still ${e.lastKnown.status}`);
   } else if (e instanceof ContentMismatchError) {
     console.error('That request already holds a different document');
+  } else if (e instanceof NetworkError) {
+    console.error(`No service answered at ${baseUrl}. Start it with:`);
+    console.error('  docker compose up -d && (cd service && ./gradlew bootRun)');
   } else {
     throw e;
   }

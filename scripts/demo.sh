@@ -5,7 +5,10 @@
 #   (cd service && ./gradlew bootRun)
 #   ./scripts/demo.sh
 #
+# Needs curl and jq.
 set -euo pipefail
+
+command -v jq >/dev/null || { echo "This script needs jq: brew install jq"; exit 1; }
 
 BASE_URL="${DOCVALIDATE_URL:-http://localhost:8080}"
 KEY="demo-$(date +%s)"
@@ -18,7 +21,10 @@ say "0. Health"
 curl -fsS "$BASE_URL/actuator/health" | jq -c .
 
 say "1. Create a validation request"
-CREATED=$(curl -fsS -X POST "$BASE_URL/api/v1/validations" -H "Idempotency-Key: $KEY")
+CREATED=$(curl -fsS -X POST "$BASE_URL/api/v1/validations" -H "Idempotency-Key: $KEY" \
+  -w '   HTTP %{http_code}\n' -o "$TMP/created.json")
+printf '%s' "$CREATED"
+CREATED=$(cat "$TMP/created.json")
 echo "$CREATED" | jq .
 REQUEST_ID=$(echo "$CREATED" | jq -r .requestId)
 UPLOAD_URL=$(echo "$CREATED" | jq -r .uploadUrl)
@@ -32,9 +38,11 @@ printf 'invoice total: 42.00\nvat: 8.40\n' > "$TMP/march-invoice.pdf"
 curl -fsS -X PUT "$UPLOAD_URL" \
   -H 'Content-Type: application/pdf' \
   -H 'Content-Disposition: attachment; filename="march-invoice.pdf"' \
-  --data-binary "@$TMP/march-invoice.pdf" | jq -c '{status, document}'
+  --data-binary "@$TMP/march-invoice.pdf" \
+  -w '   HTTP %{http_code}\n' -o "$TMP/uploaded.json"
+jq -c '{status, document}' "$TMP/uploaded.json"
 
-say "4. Re-upload the identical bytes: accepted, no second job"
+say "4. Re-upload the identical bytes: a replay in any status, no second job"
 curl -fsS -o /dev/null -w '   HTTP %{http_code} (200 = replay, no state change)\n' \
   -X PUT "$UPLOAD_URL" \
   -H 'Content-Type: application/pdf' \

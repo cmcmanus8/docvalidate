@@ -1,4 +1,4 @@
-import { DocValidateError, NetworkError, errorFor } from './errors.js';
+import { DocValidateError, NetworkError, ServiceError, errorFor } from './errors.js';
 import type { ProblemDetail } from './types.js';
 
 export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
@@ -9,6 +9,12 @@ export interface RetryOptions {
   /** Delay before the second attempt; doubled each time, with full jitter. */
   baseDelayMs: number;
   maxDelayMs: number;
+  /**
+   * Ceiling on a server's Retry-After. That header is a request from the service and is
+   * followed even when it exceeds maxDelayMs - clamping a 60s cooldown to 5s would hammer
+   * a service that just asked for room. This is the limit on how long it can park a call.
+   */
+  maxRetryAfterMs: number;
 }
 
 export interface HttpOptions {
@@ -58,7 +64,15 @@ export class HttpClient {
       }
 
       if (response.ok) {
-        return (await readJson(response)) as T;
+        const body = await readJson(response);
+        if (body === undefined) {
+          // Casting undefined to T would hand the caller a value their types say cannot
+          // exist, and the TypeError would surface in their code, not ours.
+          throw new ServiceError('The service returned an empty or unreadable body', {
+            status: response.status,
+          });
+        }
+        return body as T;
       }
 
       const problem = (await readJson(response)) as ProblemDetail | undefined;
@@ -90,12 +104,28 @@ export class HttpClient {
   }
 
   private async backoff(attempt: number, retryAfter: string | null): Promise<void> {
-    const { baseDelayMs, maxDelayMs } = this.options.retry;
-    const server = retryAfter === null ? NaN : Number(retryAfter) * 1000;
+    const { baseDelayMs, maxDelayMs, maxRetryAfterMs } = this.options.retry;
+
+    const requested = parseRetryAfter(retryAfter);
+    if (requested !== undefined) {
+      await this.options.sleep(Math.min(requested, maxRetryAfterMs));
+      return;
+    }
+
     // Full jitter: retries from many clients spread out instead of arriving together.
-    const backoff = Math.min(maxDelayMs, baseDelayMs * 2 ** (attempt - 1)) * this.options.random();
-    await this.options.sleep(Number.isFinite(server) ? Math.min(server, maxDelayMs) : backoff);
+    await this.options.sleep(Math.min(maxDelayMs, baseDelayMs * 2 ** (attempt - 1)) * this.options.random());
   }
+}
+
+/** RFC 9110 allows both a delay in seconds and an HTTP-date; proxies send both. */
+function parseRetryAfter(header: string | null): number | undefined {
+  if (header === null || header.trim() === '') return undefined;
+
+  const seconds = Number(header);
+  if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000);
+
+  const at = Date.parse(header);
+  return Number.isNaN(at) ? undefined : Math.max(0, at - Date.now());
 }
 
 async function readJson(response: Response): Promise<unknown> {

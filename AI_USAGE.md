@@ -14,13 +14,27 @@ back-filled from the code.
 I also used **Claude Code's `/code-review`** as an adversarial second pass, once
 after the API layer and once after the messaging layer, rather than trusting the
 same model that wrote the code to also sign it off. That was the most valuable
-part of the workflow: the two passes returned seventeen findings between them,
-of which everything material is fixed in commits `fdd43d5` and `7911865`. The
-commit messages say what was wrong and why.
+part of the workflow: nine findings on the API layer and eight on the messaging
+layer, all of which I fixed - `fdd43d5` and `7911865`, whose messages say what
+was wrong and why.
 
-What I kept for myself: the status machine and the transition table, the
-idempotency rules, the decision to skip a `confirm` endpoint, and the decision
-to make the messaging adapter a property rather than a profile.
+Then, at the end, **three subagents in parallel against a fresh clone** of the
+pushed repository - not the working directory, which hides anything uncommitted
+or already-installed. One followed the README's backend instructions literally
+and ran the demo; one audited the SDK as a consumer would, packing the tarball
+and installing it into a scratch project outside the repo; one read every claim
+in the four documents against the source. Splitting it three ways was partly
+about isolation - only one of them was allowed near Docker - and partly about
+cost: three focused agents on one concern each is cheaper and sharper than one
+agent holding the whole repository in its head.
+
+That pass is where the worst bug in this repository was found, and it was found
+in the *documentation*, not the code. See below.
+
+What I decided rather than typed: the status machine and its transition table,
+the idempotency rules, skipping `confirm`, and making the messaging adapter a
+property rather than a profile. The model wrote the Java for all of them; the
+shape of each was mine, and the two I got wrong are the two documented below.
 
 ## Keeping the loop cheap
 
@@ -39,6 +53,22 @@ carries, the more confidently it repeats itself. What kept this tractable:
 - **Verification by tooling, not by asking.** `./gradlew test`, `attw`, `publint` and
   a real `curl` run against a live service decide whether something works. Two of the
   bugs in this document were found by a test failing, not by anybody reading code.
+
+## The bug the audit found
+
+`sdk/README.md` promised that retrying an upload is safe because identical bytes
+are answered `200` with no state change. The service only honoured that while the
+request was still `QUEUED` - and the worker claims a job about a second after the
+upload. So the guarantee the SDK's whole retry policy leans on was true for
+roughly one second, after which a retried upload got a `409` the SDK does not
+retry. Every test passed, because every test uploaded and asserted immediately.
+
+The fix was to make the digest check ignore status entirely: a replay is a replay
+whenever it arrives. What I want to note is the shape of the mistake. Nothing
+here was a hallucination or a bad line of code. The doc and the code were written
+in the same session by the same model, and they disagreed by about one second in
+a way that only a reader comparing them line by line would catch. That is the
+failure mode I would design the next workflow around.
 
 ## Suggestions I rejected
 
@@ -80,11 +110,24 @@ npx publint                            # packaging lint
 `npm run verify` runs all of it plus typecheck and tests, and CI runs `npm run
 verify` on every push.
 
+The smoke scripts import `../dist/...` by relative path, which proves the files
+exist and export what they claim but says nothing about the `exports` map. So the
+final audit did it properly: `npm pack`, install the tarball into a scratch
+project outside the repo, then `import` it by bare specifier from a `.mjs`,
+`require` it from a `.cjs`, and typecheck a consumer file against it twice - once
+with `moduleResolution: "bundler"`, once with `"node16"`. All four resolved. That
+is the check I would keep; the rest are conveniences.
+
 Two things this caught that inspection would not have:
 
 - **publint** flagged that a single `types` condition resolves as ESM under
   `require`, so CJS consumers would only have got types via dynamic import. Fixed
   by splitting `types` per condition with a `.d.cts`.
+- The consumer install turned up two client-side bugs no in-repo test could have:
+  a non-ASCII filename threw inside `fetch` before the request left the process
+  (and, being deterministic, was then retried three times), and a `200` with an
+  empty body was handed back as `undefined` typed as a `Validation`. Both fixed;
+  both now have tests.
 - **`attw` 0.17 fails against npm 11** with `Cannot read properties of undefined`,
   which looks exactly like a broken package until you check the tool. Pinned to
   0.18.5, which produces the clean four-row matrix.

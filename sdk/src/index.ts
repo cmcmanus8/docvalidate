@@ -15,6 +15,7 @@ export {
   NetworkError,
   RequestExpiredError,
   ServiceError,
+  UnknownEndpointError,
   ValidationNotFoundError,
   ValidationTimeoutError,
 } from './errors.js';

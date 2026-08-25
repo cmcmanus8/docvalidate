@@ -12,7 +12,9 @@ export interface DocValidateClientOptions {
   retry?: Partial<RetryOptions>;
   /** Swap in for tests, or to add tracing headers in front of the real one. */
   fetch?: FetchLike;
+  /** Test seam: replaces the timer the retry backoff and the poll loop wait on. */
   sleep?: (ms: number) => Promise<void>;
+  /** Test seam: replaces the jitter source, so backoff delays become deterministic. */
   random?: () => number;
 }
 
@@ -39,7 +41,12 @@ export interface WaitOptions {
   signal?: AbortSignal;
 }
 
-const DEFAULT_RETRY: RetryOptions = { attempts: 3, baseDelayMs: 200, maxDelayMs: 5_000 };
+const DEFAULT_RETRY: RetryOptions = {
+  attempts: 3,
+  baseDelayMs: 200,
+  maxDelayMs: 5_000,
+  maxRetryAfterMs: 60_000,
+};
 
 export class DocValidateClient {
   private readonly http: HttpClient;
@@ -89,7 +96,7 @@ export class DocValidateClient {
       path: `/api/v1/validations/${encodeURIComponent(requestId)}/content`,
       headers: {
         'content-type': document.contentType,
-        'content-disposition': `attachment; filename="${escapeQuotes(document.filename)}"`,
+        'content-disposition': contentDisposition(document.filename),
         'content-length': String(body.byteLength),
       },
       body,
@@ -164,8 +171,14 @@ async function toBytes(content: Uint8Array | ArrayBuffer | Blob | string): Promi
   return content.buffer.slice(content.byteOffset, content.byteOffset + content.byteLength) as ArrayBuffer;
 }
 
-function escapeQuotes(filename: string): string {
-  return filename.replace(/["\\]/g, '_');
+/**
+ * RFC 6266: a plain filename parameter is a ByteString, so an accented or CJK filename
+ * throws inside fetch before the request is made - and, being deterministic, would then
+ * be retried three times. The ASCII form is the fallback; filename* carries the truth.
+ */
+function contentDisposition(filename: string): string {
+  const ascii = filename.replace(/[^\x20-\x7E]/g, '_').replace(/["\\]/g, '_');
+  return `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(filename)}`;
 }
 
 /** Factory alternative to `new DocValidateClient(...)`, for callers who prefer it. */

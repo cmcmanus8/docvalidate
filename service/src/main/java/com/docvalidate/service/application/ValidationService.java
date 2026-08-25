@@ -12,6 +12,7 @@ import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.HexFormat;
+import java.util.Optional;
 import java.util.UUID;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -75,21 +76,25 @@ public class ValidationService {
      *                 the request declared when it was created.
      */
     public UploadOutcome upload(UUID requestId, String filename, String contentType, byte[] content) {
+        // Identity of the request before size: an oversized upload to an id that does not
+        // exist is a 404, not a 413. The filter has already rejected anything that declared
+        // an oversized Content-Length, so this only catches a chunked body.
+        ValidationRequest request = requests.findById(requestId)
+                .orElseThrow(() -> new ValidationNotFoundException(requestId));
+
         if (content.length > properties.maxUploadSize().toBytes()) {
             throw new PayloadTooLargeException(properties.maxUploadSize().toBytes());
         }
 
-        ValidationRequest request = requests.findById(requestId)
-                .orElseThrow(() -> new ValidationNotFoundException(requestId));
         Instant now = clock.instant();
         String digest = sha256(content);
 
-        if (request.getStatus() == ValidationStatus.QUEUED) {
-            boolean sameBytes = request.getDocument()
-                    .map(Document::getSha256)
-                    .filter(digest::equals)
-                    .isPresent();
-            if (sameBytes) {
+        // Checked in every status, not only QUEUED. Once the request holds a document, the
+        // same bytes are a replay whatever the worker has done since - which is what makes
+        // retrying a timed-out upload safe, rather than safe for about a second.
+        Optional<String> held = request.getDocument().map(Document::getSha256);
+        if (held.isPresent()) {
+            if (held.get().equals(digest)) {
                 return UploadOutcome.ALREADY_ACCEPTED;
             }
             throw new ContentMismatchException(requestId);
@@ -102,6 +107,12 @@ public class ValidationService {
             return UploadOutcome.EXPIRED;
         }
 
+        // The lifecycle answers before the request body does, so an upload to a terminal
+        // request is a 409 rather than a complaint about its headers.
+        if (request.getStatus() != ValidationStatus.PENDING_UPLOAD) {
+            throw new IllegalStateTransitionException(requestId, request.getStatus(), ValidationStatus.QUEUED);
+        }
+
         String resolvedFilename = filename != null ? filename
                 : request.getDeclaredFilename().orElseThrow(MissingFilenameException::new);
 
@@ -112,12 +123,6 @@ public class ValidationService {
                 .ifPresent(declared -> {
                     throw new DeclaredTypeMismatchException(requestId, declared, contentType);
                 });
-
-        if (request.getStatus() != ValidationStatus.PENDING_UPLOAD) {
-            // Checked before the write. Storage is not transactional, so an upload the
-            // domain is about to reject must not overwrite bytes already on disk.
-            throw new IllegalStateTransitionException(requestId, request.getStatus(), ValidationStatus.QUEUED);
-        }
 
         // Written before the transition so a storage failure leaves the request
         // still awaiting an upload rather than QUEUED with nothing behind it.

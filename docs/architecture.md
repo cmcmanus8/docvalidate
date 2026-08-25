@@ -49,9 +49,16 @@ service/
   processing/   DocumentValidator (deterministic stub)
 ```
 
-The dependency rule is one-way: `api` and `messaging` depend on `domain`;
-`domain` depends on nothing. Adapters are the only classes that know Kafka or
-the filesystem exist.
+The dependency rule is one-way and points inward: `api`, `messaging` and
+`processing` depend on `application` and `domain`; `domain` depends on no other
+module here. Adapters are the only classes that know Kafka or the filesystem
+exist.
+
+"Depends on nothing" is not literally true of `domain` - it carries its JPA
+annotations, for the reason below - and `messaging` also reads
+`application`'s `ValidationQueuedEvent`, since that is the event it listens for.
+The rule worth enforcing is that nothing in `domain` knows what a controller, a
+broker or a bucket is.
 
 The JPA annotations sit on the domain classes rather than on a parallel set of
 persistence entities that get mapped back and forth. At this size the mapping
@@ -86,11 +93,18 @@ Expiry is swept, not merely lazy. A scheduled job moves abandoned requests out o
 fire only when a late caller happens to retry would have made `EXPIRED` a status
 the lifecycle could reach by accident rather than one it actually enforces.
 
-The guard lives on the aggregate as `ValidationRequest.transitionTo(next)`,
+The guard lives on the aggregate as `ValidationRequest.transitionTo(next, now)`,
 not as scattered `if` checks in the service layer. Invalid transitions throw
 `IllegalStateTransitionException`, which the advice maps to 409. This keeps the
 domain object responsible for its own invariants rather than leaving it an
 anemic data holder that any caller can put into a nonsense state.
+
+One transition escapes that guard, deliberately: the expiry sweeper runs a bulk
+`UPDATE` over every abandoned request rather than loading each aggregate to ask
+it. There is no per-row decision to make, and loading thousands of entities to
+set one column would be worse. The cost is honest - `PENDING_UPLOAD → EXPIRED`
+now has two implementations, and a future transition added to the table has to be
+added in both places. That is the trade, and it is the only place it is made.
 
 ## Idempotency rules
 
@@ -114,12 +128,31 @@ The SHA-256 digest of the uploaded bytes is stored on the document row.
 | Condition | Response |
 |---|---|
 | First upload, status `PENDING_UPLOAD` | `202`, transition to `QUEUED`, publish job |
-| Re-upload, identical digest, status `PENDING_UPLOAD` or `QUEUED` | `200`, no state change, **no second job published** |
-| Re-upload, different digest | `409` — content is immutable once accepted |
-| Any upload once status is `PROCESSING` or terminal | `409` |
+| Re-upload, identical digest, **any status** | `200`, no state change, **no second job published** |
+| Re-upload, different digest, any status | `409 CONTENT_MISMATCH` |
+| First upload once the status is terminal | `409 INVALID_STATE_TRANSITION` |
 
-Retrying a timed-out upload is therefore safe, while silently swapping the
-document under a request that has already been judged is not.
+The digest check deliberately ignores status. An earlier version only accepted a
+replay while the request was still `QUEUED`, which sounds equivalent and is not:
+the worker claims a job about a second after the upload, so "retrying a timed-out
+upload is safe" was true for about a second and then quietly became a `409`. A
+replay is a replay whenever it arrives.
+
+Swapping a *different* document under a request that has already been judged is
+refused in every status, which is the other half of the same rule.
+
+The checks run in a deliberate order, because the first one to fail decides the
+status code a client sees:
+
+1. Does the request exist? Otherwise `404` - including for an oversized body,
+   which is not a `413` if there was nothing to upload to.
+2. Is the body within the size cap? `413` if not.
+3. Does the request already hold a document? Then the digest decides, per above.
+4. Has the upload window closed? Then `EXPIRED`, committed, reported as `409`.
+5. Is the request still `PENDING_UPLOAD`? Otherwise `409`. This sits above the
+   header checks so that an upload to a finished request is answered by the
+   lifecycle rather than by a complaint about `Content-Disposition`.
+6. Only then: resolve the filename, and check the bytes against any declaration.
 
 ### Job consumption
 
@@ -146,24 +179,19 @@ public interface JobPublisher { void publish(ValidationJob job); }
 public interface JobConsumer  { void onJob(ValidationJob job); }
 ```
 
-| Adapter | Profile | Use |
+| Adapter | Selected by | Use |
 |---|---|---|
 | `KafkaJobPublisher` | `docvalidate.messaging=kafka` (default) | Local runs and the demo |
 | `LocalJobPublisher` | `docvalidate.messaging=local` | Tests, and running without a broker |
 
-`LocalJobPublisher` exists for a reason beyond convenience: a port with one
-implementation is an assertion, not a demonstration. Two adapters prove the
-business logic does not know which one is wired. It also keeps the unit and
-WebMvc tests broker-free, so only one integration test pays Kafka startup.
+Two adapters rather than one because a port with a single implementation proves
+nothing about whether the business logic depends on it. Keeping both honest also
+keeps the unit and WebMvc tests broker-free, so only one integration test pays
+for Kafka startup, and the consumer is identical on both paths. Swapping to MSK
+later is a configuration change plus a new `JobPublisher` bean.
 
-The consumer is identical on both paths. Swapping to MSK later is a
-configuration change plus a new `JobPublisher` bean; no domain code moves.
-
-The adapter is chosen by a property, not a profile. As a profile it became the
-silent default of every profile that was not called `kafka` - a deployment run
-under `prod` would have started happily with an in-memory publisher and no
-durability. A property says what it means, an unrecognised value starts nothing
-at all, and the in-memory adapter logs a warning on the way up.
+Which adapter is live is a property rather than a profile - see the README's
+trade-offs for why that distinction cost me a bug.
 
 Jobs go to `docvalidate.validation-jobs`, three partitions, keyed by `requestId`
 so redeliveries of one request stay ordered relative to each other while separate
@@ -205,7 +233,7 @@ extracted without a table-name collision.
 |---|---|
 | `validation_request` | Aggregate root: status, timestamps, idempotency key, version |
 | `document` | Filename, content type, size, SHA-256, storage key |
-| `validation_result` | Verdict, extracted fields (`jsonb`), reason |
+| `validation_result` | Verdict, `fields` (`jsonb`), reason |
 
 Notes:
 

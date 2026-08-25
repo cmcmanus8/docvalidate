@@ -53,4 +53,38 @@ class DeclaredMetadataIntegrationTest extends PostgresTestBase {
         assertThat(requests.findById(requestId).orElseThrow().getStatus())
                 .isEqualTo(ValidationStatus.PENDING_UPLOAD);
     }
+
+    /**
+     * The retry window used to close the moment the worker claimed the job, roughly a second
+     * after upload, which made "identical bytes are safe to resend" true only in theory.
+     */
+    @Test
+    void identicalBytesAreAReplayInEveryStatus() {
+        UUID requestId = validations.create(null, "invoice.pdf", "application/pdf").request().getId();
+        byte[] content = "invoice total: 42.00".getBytes();
+        validations.upload(requestId, null, "application/pdf", content);
+
+        requests.claimForProcessing(requestId, java.time.Instant.now());
+        assertThat(requests.findById(requestId).orElseThrow().getStatus())
+                .isEqualTo(ValidationStatus.PROCESSING);
+
+        assertThat(validations.upload(requestId, null, "application/pdf", content))
+                .isEqualTo(UploadOutcome.ALREADY_ACCEPTED);
+    }
+
+    @Test
+    void differentBytesAreRefusedInEveryStatus() {
+        UUID requestId = validations.create(null, "invoice.pdf", "application/pdf").request().getId();
+        validations.upload(requestId, null, "application/pdf", "first".getBytes());
+        requests.claimForProcessing(requestId, java.time.Instant.now());
+
+        assertThatThrownBy(() -> validations.upload(requestId, null, "application/pdf", "second".getBytes()))
+                .isInstanceOf(ContentMismatchException.class);
+    }
+
+    @Test
+    void anUploadToAnUnknownRequestIs404EvenWhenItIsTooLarge() {
+        assertThatThrownBy(() -> validations.upload(UUID.randomUUID(), "a.pdf", "application/pdf", new byte[0]))
+                .isInstanceOf(ValidationNotFoundException.class);
+    }
 }

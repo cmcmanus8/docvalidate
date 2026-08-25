@@ -5,11 +5,14 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
+import java.net.URI;
 import java.util.regex.Pattern;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.http.ProblemDetail;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
@@ -26,9 +29,11 @@ class UploadSizeLimitFilter extends OncePerRequestFilter {
             Pattern.compile("/api/v1/validations/[^/]+/content/?");
 
     private final long maxBytes;
+    private final ObjectMapper json;
 
-    UploadSizeLimitFilter(DocValidateProperties properties) {
+    UploadSizeLimitFilter(DocValidateProperties properties, ObjectMapper json) {
         this.maxBytes = properties.maxUploadSize().toBytes();
+        this.json = json;
     }
 
     @Override
@@ -56,12 +61,20 @@ class UploadSizeLimitFilter extends OncePerRequestFilter {
         chain.doFilter(request, response);
     }
 
-    private static void problem(HttpServletResponse response, HttpStatus status, ProblemCode code,
-                                String title, String detail) throws IOException {
+    /**
+     * Serialised rather than hand-formatted. A filter runs before the advice, so the body
+     * has to be built here - but building it with string interpolation is how an unescaped
+     * quote in a detail message turns a 413 into a parse error on the client.
+     */
+    private void problem(HttpServletResponse response, HttpStatus status, ProblemCode code,
+                         String title, String detail) throws IOException {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(status, detail);
+        problem.setType(URI.create(code.type()));
+        problem.setTitle(title);
+        problem.setProperty("code", code.name());
+
         response.setStatus(status.value());
         response.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
-        response.getWriter().write("""
-                {"type":"%s","title":"%s","status":%d,"detail":"%s","code":"%s"}"""
-                .formatted(code.type(), title, status.value(), detail, code.name()));
+        json.writeValue(response.getWriter(), problem);
     }
 }
