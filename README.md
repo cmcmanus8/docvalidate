@@ -30,6 +30,8 @@ That walks the whole path with `curl`: create, replay the idempotency key, uploa
 re-upload the same bytes, try to swap the document, and poll to a verdict. It is
 the fastest way to see what the service actually promises.
 
+Interactive API docs, once it is running: **<http://localhost:8080/swagger-ui.html>**.
+
 Without a broker:
 
 ```bash
@@ -43,7 +45,7 @@ property, not a profile - see [Trade-offs](#trade-offs).
 ## Test it
 
 ```bash
-cd service && ./gradlew test     # 42 tests: domain, WebMvc slice, Postgres, one Kafka
+cd service && ./gradlew test     # 52 tests: domain, WebMvc slice, Postgres, one Kafka
 cd sdk && npm install && npm run verify
 ```
 
@@ -64,11 +66,14 @@ const result = await client.validate({
   content: await readFile('march-invoice.pdf'),
 });
 
-console.log(result.status, result.result?.verdict, result.result?.extractedFields);
+console.log(result.status, result.result?.verdict, result.result?.fields);
 ```
 
 Runnable version, against a live service: `cd sdk && npm run build && npm run example`.
-Full surface, error types and retry rules: [sdk/README.md](sdk/README.md).
+Full surface, error types and retry rules: [sdk/README.md](sdk/README.md). Built with
+tsup rather than Vite - same esbuild pipeline, but it emits `.d.ts` and `.d.cts`
+without plugins, and the packaging is proved by `attw` and `publint` rather than by
+the choice of bundler.
 
 ## Architecture
 
@@ -146,11 +151,11 @@ straight to S3.
 2. **Retry topic and DLQ.** Today a transient fault is recorded as `FAILED`
    exactly like a permanent one, because retrying in place would block the
    partition.
-3. **OpenAPI** via springdoc, which is worth roughly fifteen minutes and gives a
-   reviewer something to click.
-4. **An auth stub** in front of the API. The SDK already sends arbitrary headers,
+3. **An auth stub** in front of the API. The SDK already sends arbitrary headers,
    so the client side is ready for it.
-5. **Presigned S3 uploads**, at which point `confirm` becomes real work.
+4. **Presigned S3 uploads**, at which point `confirm` becomes real work.
+5. **A verdict richer than a stub** - the point where this stops being a lifecycle
+   exercise and starts being a product.
 
 ## AI usage
 

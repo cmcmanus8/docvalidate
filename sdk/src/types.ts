@@ -8,7 +8,7 @@ export type ValidationStatus =
   | 'EXPIRED';
 
 /** ERROR means the document was never judged, not that it was rejected. */
-export type Verdict = 'VALID' | 'INVALID' | 'ERROR';
+export type Verdict = 'PASS' | 'FAIL' | 'ERROR';
 
 export interface CreateValidationResponse {
   requestId: string;
@@ -27,7 +27,7 @@ export interface DocumentSummary {
 export interface ValidationResultSummary {
   verdict: Verdict;
   reason?: string;
-  extractedFields?: Record<string, unknown>;
+  fields?: Record<string, unknown>;
 }
 
 export interface Validation {
@@ -45,6 +45,7 @@ export type ProblemCode =
   | 'VALIDATION_NOT_FOUND'
   | 'INVALID_STATE_TRANSITION'
   | 'CONTENT_MISMATCH'
+  | 'DECLARED_TYPE_MISMATCH'
   | 'REQUEST_EXPIRED'
   | 'PAYLOAD_TOO_LARGE'
   | 'LENGTH_REQUIRED'

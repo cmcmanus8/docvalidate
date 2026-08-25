@@ -9,5 +9,7 @@
     <include file="db/changelog/002-validation-request.xml"/>
     <include file="db/changelog/003-document.xml"/>
     <include file="db/changelog/004-validation-result.xml"/>
+    <include file="db/changelog/005-align-result-vocabulary.xml"/>
+    <include file="db/changelog/006-declared-document-metadata.xml"/>
 
 </databaseChangeLog>

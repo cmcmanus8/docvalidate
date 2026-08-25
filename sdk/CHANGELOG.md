@@ -4,4 +4,5 @@
 
 Initial release: create, upload, poll and `waitForCompletion`, typed errors off the
 service's problem codes, retries scoped to the calls the API says are safe to replay,
-dual ESM/CJS build with per-condition types.
+optional up-front document declaration, `AbortSignal` support, and a dual ESM/CJS
+build with per-condition types.

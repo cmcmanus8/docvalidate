@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                            http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+    <changeSet id="006-declared-document-metadata" author="calum">
+        <!-- What the client said it was going to send, captured at create time. Nullable:
+             declaring up front is optional, and the document row still records what
+             actually arrived. -->
+        <addColumn tableName="validation_request" schemaName="validation">
+            <column name="declared_filename" type="varchar(512)"/>
+            <column name="declared_content_type" type="varchar(255)"/>
+        </addColumn>
+
+        <rollback>
+            <dropColumn tableName="validation_request" schemaName="validation" columnName="declared_filename"/>
+            <dropColumn tableName="validation_request" schemaName="validation" columnName="declared_content_type"/>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

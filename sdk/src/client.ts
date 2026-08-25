@@ -22,6 +22,16 @@ export interface DocumentInput {
   content: Uint8Array | ArrayBuffer | Blob | string;
 }
 
+export interface CreateValidationInput {
+  /** Declared up front so the upload can omit Content-Disposition. */
+  filename?: string;
+  /** Declared up front; bytes that contradict it are refused. */
+  contentType?: string;
+  /** Makes the create replayable - and therefore safe for the SDK to retry. */
+  idempotencyKey?: string;
+  signal?: AbortSignal;
+}
+
 export interface WaitOptions {
   /** Give up after this long. Defaults to 60s. */
   timeoutMs?: number;
@@ -53,13 +63,22 @@ export class DocValidateClient {
    * @param idempotencyKey replaying the same key returns the same request rather than
    *   creating a second one - which is also what makes this call safe to retry.
    */
-  async createValidation(idempotencyKey?: string, signal?: AbortSignal): Promise<CreateValidationResponse> {
+  async createValidation(input: CreateValidationInput = {}): Promise<CreateValidationResponse> {
+    const declaration: Record<string, string> = {};
+    if (input.filename !== undefined) declaration['filename'] = input.filename;
+    if (input.contentType !== undefined) declaration['contentType'] = input.contentType;
+    const declares = Object.keys(declaration).length > 0;
+
     return this.http.send<CreateValidationResponse>({
       method: 'POST',
       path: '/api/v1/validations',
-      ...(idempotencyKey === undefined ? {} : { headers: { 'idempotency-key': idempotencyKey } }),
-      idempotent: idempotencyKey !== undefined,
-      signal,
+      headers: {
+        ...(input.idempotencyKey === undefined ? {} : { 'idempotency-key': input.idempotencyKey }),
+        ...(declares ? { 'content-type': 'application/json' } : {}),
+      },
+      ...(declares ? { body: JSON.stringify(declaration) } : {}),
+      idempotent: input.idempotencyKey !== undefined,
+      signal: input.signal,
     });
   }
 
@@ -119,8 +138,19 @@ export class DocValidateClient {
     document: DocumentInput,
     options: WaitOptions & { idempotencyKey?: string } = {},
   ): Promise<Validation> {
-    const created = await this.createValidation(options.idempotencyKey, options.signal);
-    await this.uploadDocument(created.requestId, document, options.signal);
+    const created = await this.createValidation({
+      filename: document.filename,
+      contentType: document.contentType,
+      ...(options.idempotencyKey === undefined ? {} : { idempotencyKey: options.idempotencyKey }),
+      ...(options.signal === undefined ? {} : { signal: options.signal }),
+    });
+
+    // An idempotency key can replay into a request that already has its document, and
+    // uploading again would be answered 409 by a service that is behaving correctly.
+    // Replaying the key is meant to be the safe thing to do, so honour that here.
+    if (created.status === 'PENDING_UPLOAD') {
+      await this.uploadDocument(created.requestId, document, options.signal);
+    }
     return this.waitForCompletion(created.requestId, options);
   }
 }
@@ -136,4 +166,9 @@ async function toBytes(content: Uint8Array | ArrayBuffer | Blob | string): Promi
 
 function escapeQuotes(filename: string): string {
   return filename.replace(/["\\]/g, '_');
+}
+
+/** Factory alternative to `new DocValidateClient(...)`, for callers who prefer it. */
+export function createClient(options: DocValidateClientOptions): DocValidateClient {
+  return new DocValidateClient(options);
 }

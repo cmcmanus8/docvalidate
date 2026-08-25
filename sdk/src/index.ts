@@ -1,8 +1,14 @@
-export { DocValidateClient } from './client.js';
-export type { DocValidateClientOptions, DocumentInput, WaitOptions } from './client.js';
+export { DocValidateClient, createClient } from './client.js';
+export type {
+  CreateValidationInput,
+  DocValidateClientOptions,
+  DocumentInput,
+  WaitOptions,
+} from './client.js';
 export type { FetchLike, RetryOptions } from './http.js';
 export {
   ContentMismatchError,
+  DeclaredTypeMismatchError,
   DocValidateError,
   InvalidRequestError,
   InvalidStateTransitionError,

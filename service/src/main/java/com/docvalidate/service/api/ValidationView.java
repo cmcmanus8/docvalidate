@@ -19,7 +19,7 @@ public record ValidationView(UUID requestId, ValidationStatus status, Instant cr
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    public record ResultView(Verdict verdict, String reason, Map<String, Object> extractedFields) {
+    public record ResultView(Verdict verdict, String reason, Map<String, Object> fields) {
     }
 
     public static ValidationView of(ValidationRequest request) {
@@ -39,6 +39,6 @@ public record ValidationView(UUID requestId, ValidationStatus status, Instant cr
     }
 
     private static ResultView resultView(ValidationResult result) {
-        return new ResultView(result.getVerdict(), result.getReason(), result.getExtractedFields());
+        return new ResultView(result.getVerdict(), result.getReason(), result.getFields());
     }
 }

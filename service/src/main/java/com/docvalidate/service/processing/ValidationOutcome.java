@@ -3,13 +3,13 @@ package com.docvalidate.service.processing;
 import com.docvalidate.service.domain.Verdict;
 import java.util.Map;
 
-public record ValidationOutcome(Verdict verdict, String reason, Map<String, Object> extractedFields) {
+public record ValidationOutcome(Verdict verdict, String reason, Map<String, Object> fields) {
 
-    static ValidationOutcome valid(Map<String, Object> extractedFields) {
-        return new ValidationOutcome(Verdict.VALID, null, extractedFields);
+    static ValidationOutcome pass(Map<String, Object> fields) {
+        return new ValidationOutcome(Verdict.PASS, null, fields);
     }
 
-    static ValidationOutcome invalid(String reason) {
-        return new ValidationOutcome(Verdict.INVALID, reason, Map.of());
+    static ValidationOutcome fail(String reason) {
+        return new ValidationOutcome(Verdict.FAIL, reason, Map.of());
     }
 }

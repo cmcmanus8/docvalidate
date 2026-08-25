@@ -5,6 +5,8 @@ import com.docvalidate.service.application.RequestExpiredException;
 import com.docvalidate.service.application.UploadOutcome;
 import com.docvalidate.service.application.ValidationService;
 import com.docvalidate.service.domain.ValidationRequest;
+import com.docvalidate.service.application.MissingFilenameException;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.Size;
 import java.net.URI;
 import java.util.UUID;
@@ -39,22 +41,26 @@ public class ValidationController {
     @PostMapping
     public ResponseEntity<CreateValidationResponse> create(
             @RequestHeader(name = "Idempotency-Key", required = false)
-            @Size(max = 255, message = "Idempotency-Key must be at most 255 characters") String idempotencyKey) {
+            @Size(max = 255, message = "Idempotency-Key must be at most 255 characters") String idempotencyKey,
+            @RequestBody(required = false) @Valid CreateValidationRequest body) {
 
-        CreateResult created = validations.create(idempotencyKey);
+        CreateResult created = validations.create(
+                idempotencyKey,
+                body == null ? null : body.filename(),
+                body == null ? null : body.contentType());
         ValidationRequest request = created.request();
         URI uploadUrl = ServletUriComponentsBuilder.fromCurrentRequestUri()
                 .pathSegment(request.getId().toString(), "content")
                 .build()
                 .toUri();
 
-        CreateValidationResponse body = new CreateValidationResponse(
+        CreateValidationResponse response = new CreateValidationResponse(
                 request.getId(), uploadUrl.toString(), request.getStatus(), request.getExpiresAt());
 
         // A replay created nothing, so it is not a 201 and carries no Location.
         return created.replayed()
-                ? ResponseEntity.ok(body)
-                : ResponseEntity.created(uploadUrl).body(body);
+                ? ResponseEntity.ok(response)
+                : ResponseEntity.created(uploadUrl).body(response);
     }
 
     /**
@@ -69,6 +75,7 @@ public class ValidationController {
             @RequestHeader(name = HttpHeaders.CONTENT_DISPOSITION, required = false) String contentDisposition,
             @RequestBody byte[] content) {
 
+        // Null is allowed here: the service falls back to whatever the request declared.
         String filename = filenameFrom(contentDisposition);
         UploadOutcome outcome = validations.upload(requestId, filename, mimeTypeOf(contentType), content);
         if (outcome == UploadOutcome.EXPIRED) {
@@ -98,7 +105,7 @@ public class ValidationController {
 
     private static String filenameFrom(String contentDisposition) {
         if (contentDisposition == null || contentDisposition.isBlank()) {
-            throw new MissingFilenameException();
+            return null;
         }
         String filename;
         try {
@@ -106,9 +113,6 @@ public class ValidationController {
         } catch (IllegalArgumentException e) {
             throw new MissingFilenameException();
         }
-        if (filename == null || filename.isBlank()) {
-            throw new MissingFilenameException();
-        }
-        return filename;
+        return filename == null || filename.isBlank() ? null : filename;
     }
 }

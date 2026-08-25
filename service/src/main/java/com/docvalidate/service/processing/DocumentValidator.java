@@ -24,10 +24,10 @@ public class DocumentValidator {
 
     public ValidationOutcome validate(String filename, String contentType, byte[] content) {
         if (content.length == 0) {
-            return ValidationOutcome.invalid("EMPTY_DOCUMENT");
+            return ValidationOutcome.fail("EMPTY_DOCUMENT");
         }
         if (!allowedContentTypes.contains(contentType)) {
-            return ValidationOutcome.invalid("UNSUPPORTED_CONTENT_TYPE");
+            return ValidationOutcome.fail("UNSUPPORTED_CONTENT_TYPE");
         }
 
         Map<String, Object> fields = new LinkedHashMap<>();
@@ -35,7 +35,7 @@ public class DocumentValidator {
         fields.put("contentType", contentType);
         fields.put("sizeBytes", content.length);
         fields.put("lineCount", countLines(content));
-        return ValidationOutcome.valid(fields);
+        return ValidationOutcome.pass(fields);
     }
 
     private static String documentType(String filename) {

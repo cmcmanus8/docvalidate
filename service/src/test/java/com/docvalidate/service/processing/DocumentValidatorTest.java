@@ -20,7 +20,7 @@ class DocumentValidatorTest {
     void anEmptyDocumentFails() {
         ValidationOutcome outcome = validator.validate("invoice.pdf", "application/pdf", new byte[0]);
 
-        assertThat(outcome.verdict()).isEqualTo(Verdict.INVALID);
+        assertThat(outcome.verdict()).isEqualTo(Verdict.FAIL);
         assertThat(outcome.reason()).isEqualTo("EMPTY_DOCUMENT");
     }
 
@@ -28,7 +28,7 @@ class DocumentValidatorTest {
     void aContentTypeOutsideTheAllowedSetFails() {
         ValidationOutcome outcome = validator.validate("virus.exe", "application/x-msdownload", "MZ".getBytes());
 
-        assertThat(outcome.verdict()).isEqualTo(Verdict.INVALID);
+        assertThat(outcome.verdict()).isEqualTo(Verdict.FAIL);
         assertThat(outcome.reason()).isEqualTo("UNSUPPORTED_CONTENT_TYPE");
     }
 
@@ -36,9 +36,9 @@ class DocumentValidatorTest {
     void aValidDocumentCarriesExtractedFields() {
         ValidationOutcome outcome = validator.validate("march-invoice.pdf", "application/pdf", "one\ntwo\n".getBytes());
 
-        assertThat(outcome.verdict()).isEqualTo(Verdict.VALID);
+        assertThat(outcome.verdict()).isEqualTo(Verdict.PASS);
         assertThat(outcome.reason()).isNull();
-        assertThat(outcome.extractedFields())
+        assertThat(outcome.fields())
                 .containsEntry("documentType", "INVOICE")
                 .containsEntry("sizeBytes", 8)
                 .containsEntry("lineCount", 2L);

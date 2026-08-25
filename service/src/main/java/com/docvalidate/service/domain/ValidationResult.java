@@ -36,8 +36,8 @@ public class ValidationResult {
     private String reason;
 
     @JdbcTypeCode(SqlTypes.JSON)
-    @Column(name = "extracted_fields", nullable = false, columnDefinition = "jsonb")
-    private Map<String, Object> extractedFields;
+    @Column(name = "fields", nullable = false, columnDefinition = "jsonb")
+    private Map<String, Object> fields;
 
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
@@ -46,12 +46,12 @@ public class ValidationResult {
     }
 
     public ValidationResult(ValidationRequest request, Verdict verdict, String reason,
-                           Map<String, Object> extractedFields, Instant createdAt) {
+                           Map<String, Object> fields, Instant createdAt) {
         this.id = UUID.randomUUID();
         this.request = request;
         this.verdict = verdict;
         this.reason = reason;
-        this.extractedFields = extractedFields == null ? Map.of() : extractedFields;
+        this.fields = fields == null ? Map.of() : fields;
         this.createdAt = createdAt;
     }
 
@@ -71,8 +71,8 @@ public class ValidationResult {
         return reason;
     }
 
-    public Map<String, Object> getExtractedFields() {
-        return extractedFields;
+    public Map<String, Object> getFields() {
+        return fields;
     }
 
     public Instant getCreatedAt() {

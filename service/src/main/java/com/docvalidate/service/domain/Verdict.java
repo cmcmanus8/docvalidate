@@ -2,10 +2,10 @@ package com.docvalidate.service.domain;
 
 public enum Verdict {
 
-    VALID,
+    PASS,
 
     /** The document was read and judged unacceptable. */
-    INVALID,
+    FAIL,
 
     /** The document was never judged: something failed while processing it. */
     ERROR

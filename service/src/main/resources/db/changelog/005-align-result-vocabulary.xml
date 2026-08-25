@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                            http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+    <!-- 004 is applied everywhere it has ever run, so the correction is a new changeset
+         rather than an edit: a rewritten changeset fails its checksum on every one of
+         those environments. -->
+    <changeSet id="005-align-result-vocabulary" author="calum">
+        <renameColumn tableName="validation_result" schemaName="validation"
+                      oldColumnName="extracted_fields" newColumnName="fields"/>
+
+        <update tableName="validation_result" schemaName="validation">
+            <column name="verdict" value="PASS"/>
+            <where>verdict = 'VALID'</where>
+        </update>
+        <update tableName="validation_result" schemaName="validation">
+            <column name="verdict" value="FAIL"/>
+            <where>verdict = 'INVALID'</where>
+        </update>
+
+        <rollback>
+            <renameColumn tableName="validation_result" schemaName="validation"
+                          oldColumnName="fields" newColumnName="extracted_fields"/>
+            <update tableName="validation_result" schemaName="validation">
+                <column name="verdict" value="VALID"/>
+                <where>verdict = 'PASS'</where>
+            </update>
+            <update tableName="validation_result" schemaName="validation">
+                <column name="verdict" value="INVALID"/>
+                <where>verdict = 'FAIL'</where>
+            </update>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

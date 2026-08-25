@@ -53,7 +53,7 @@ class JobProcessor {
             ValidationOutcome outcome =
                     validator.validate(document.getFilename(), document.getContentType(), storage.read(document.getStorageKey()));
             if (outcome.reason() == null) {
-                request.complete(outcome.extractedFields(), now);
+                request.complete(outcome.fields(), now);
             } else {
                 request.fail(outcome.verdict(), outcome.reason(), now);
             }

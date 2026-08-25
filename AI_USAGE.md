@@ -22,6 +22,24 @@ What I kept for myself: the status machine and the transition table, the
 idempotency rules, the decision to skip a `confirm` endpoint, and the decision
 to make the messaging adapter a property rather than a profile.
 
+## Keeping the loop cheap
+
+A long assistant session gets expensive and, worse, gets vague - the more context it
+carries, the more confidently it repeats itself. What kept this tractable:
+
+- **One phase, one commit.** Persistence, then the API, then messaging, then the SDK.
+  Each phase ended in a commit with the reasoning in the message, so the repository
+  carried the state rather than the conversation having to.
+- **Review as a separate pass.** The model that wrote the code is a poor judge of it,
+  so `/code-review` ran against the diff as its own step. That is where the profile
+  bug and the expiry bug were caught.
+- **Patches, not regeneration.** Changes were applied as targeted edits rather than
+  by rewriting whole files, which keeps diffs reviewable - the point is to read what
+  changed, and a regenerated file makes that impossible.
+- **Verification by tooling, not by asking.** `./gradlew test`, `attw`, `publint` and
+  a real `curl` run against a live service decide whether something works. Two of the
+  bugs in this document were found by a test failing, not by anybody reading code.
+
 ## Suggestions I rejected
 
 **1. Selecting the in-memory publisher with `@Profile("!kafka")`.** This was

@@ -35,7 +35,7 @@ class ValidationRequestTest {
         request.complete(Map.of("pages", 2), NOW);
 
         assertThat(request.getStatus()).isEqualTo(ValidationStatus.COMPLETED);
-        assertThat(request.getResult()).get().extracting(ValidationResult::getVerdict).isEqualTo(Verdict.VALID);
+        assertThat(request.getResult()).get().extracting(ValidationResult::getVerdict).isEqualTo(Verdict.PASS);
     }
 
     @Test

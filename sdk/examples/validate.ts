@@ -29,10 +29,10 @@ try {
 
   console.log(`  ${result.status} after ${Date.now() - started}ms`);
   console.log(`  verdict: ${result.result?.verdict ?? '-'}`);
-  console.log(`  fields:  ${JSON.stringify(result.result?.extractedFields ?? {})}`);
+  console.log(`  fields:  ${JSON.stringify(result.result?.fields ?? {})}`);
 
   // Re-running with the same key returns the same request rather than a second one.
-  const again = await client.createValidation(`example-${filename}`);
+  const again = await client.createValidation({ idempotencyKey: `example-${filename}` });
   console.log(`  replaying the idempotency key returned ${again.requestId === result.requestId ? 'the same' : 'a DIFFERENT'} request`);
 } catch (e) {
   if (e instanceof ValidationTimeoutError) {

@@ -1,18 +1,22 @@
 package com.docvalidate.service.api;
 
 import com.docvalidate.service.application.ContentMismatchException;
+import com.docvalidate.service.application.DeclaredTypeMismatchException;
+import com.docvalidate.service.application.MissingFilenameException;
 import com.docvalidate.service.application.PayloadTooLargeException;
 import com.docvalidate.service.application.RequestExpiredException;
 import com.docvalidate.service.application.ValidationNotFoundException;
 import com.docvalidate.service.domain.IllegalStateTransitionException;
 import com.docvalidate.service.storage.StorageException;
 import jakarta.validation.ConstraintViolationException;
+import java.util.Map;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ProblemDetail;
+import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -49,6 +53,12 @@ class ApiExceptionHandler extends ResponseEntityExceptionHandler {
                 "Content already accepted", e.getMessage(), e.getRequestId());
     }
 
+    @ExceptionHandler(DeclaredTypeMismatchException.class)
+    ProblemDetail handle(DeclaredTypeMismatchException e) {
+        return problem(HttpStatus.CONFLICT, ProblemCode.DECLARED_TYPE_MISMATCH,
+                "Content type does not match the declaration", e.getMessage(), e.getRequestId());
+    }
+
     @ExceptionHandler(RequestExpiredException.class)
     ProblemDetail handle(RequestExpiredException e) {
         return problem(HttpStatus.CONFLICT, ProblemCode.REQUEST_EXPIRED,
@@ -74,6 +84,24 @@ class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         log.error("Document storage failed", e);
         return problem(HttpStatus.INTERNAL_SERVER_ERROR, ProblemCode.STORAGE_FAILURE,
                 "Storage failure", "The document could not be stored", null);
+    }
+
+    /**
+     * Bean-validation failures name the fields that failed. "Invalid request content" tells
+     * a caller nothing they can act on, and the SDK has no way to surface it usefully.
+     */
+    @Override
+    protected ResponseEntity<Object> handleMethodArgumentNotValid(MethodArgumentNotValidException e,
+                                                                  HttpHeaders headers, HttpStatusCode status,
+                                                                  WebRequest request) {
+        ProblemDetail problem = problem(HttpStatus.BAD_REQUEST, ProblemCode.INVALID_REQUEST,
+                "Invalid request", "One or more fields are invalid", null);
+        problem.setProperty("errors", e.getBindingResult().getFieldErrors().stream()
+                .map(error -> Map.of(
+                        "field", error.getField(),
+                        "message", String.valueOf(error.getDefaultMessage())))
+                .toList());
+        return ResponseEntity.badRequest().body(problem);
     }
 
     /**

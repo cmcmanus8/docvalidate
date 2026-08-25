@@ -36,6 +36,13 @@ public class ValidationRequest {
     @Column(name = "idempotency_key", updatable = false)
     private String idempotencyKey;
 
+    /** What the client said it would upload. Optional, and never trusted over the bytes. */
+    @Column(name = "declared_filename", updatable = false)
+    private String declaredFilename;
+
+    @Column(name = "declared_content_type", updatable = false)
+    private String declaredContentType;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -59,10 +66,17 @@ public class ValidationRequest {
     }
 
     public static ValidationRequest create(String idempotencyKey, Instant now, Duration uploadWindow) {
+        return create(idempotencyKey, null, null, now, uploadWindow);
+    }
+
+    public static ValidationRequest create(String idempotencyKey, String declaredFilename,
+                                           String declaredContentType, Instant now, Duration uploadWindow) {
         ValidationRequest request = new ValidationRequest();
         request.id = UUID.randomUUID();
         request.status = ValidationStatus.PENDING_UPLOAD;
         request.idempotencyKey = idempotencyKey;
+        request.declaredFilename = declaredFilename;
+        request.declaredContentType = declaredContentType;
         request.createdAt = now;
         request.updatedAt = now;
         request.expiresAt = now.plus(uploadWindow);
@@ -84,9 +98,9 @@ public class ValidationRequest {
         this.document = new Document(this, filename, contentType, sizeBytes, sha256, storageKey, now);
     }
 
-    public void complete(Map<String, Object> extractedFields, Instant now) {
+    public void complete(Map<String, Object> fields, Instant now) {
         transitionTo(ValidationStatus.COMPLETED, now);
-        this.result = new ValidationResult(this, Verdict.VALID, null, extractedFields, now);
+        this.result = new ValidationResult(this, Verdict.PASS, null, fields, now);
     }
 
     /**
@@ -117,6 +131,14 @@ public class ValidationRequest {
 
     public String getIdempotencyKey() {
         return idempotencyKey;
+    }
+
+    public Optional<String> getDeclaredFilename() {
+        return Optional.ofNullable(declaredFilename);
+    }
+
+    public Optional<String> getDeclaredContentType() {
+        return Optional.ofNullable(declaredContentType);
     }
 
     public Instant getCreatedAt() {

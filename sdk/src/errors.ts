@@ -27,6 +27,9 @@ export class ValidationNotFoundError extends DocValidateError {}
 /** The request already holds different bytes: documents are immutable once accepted. */
 export class ContentMismatchError extends DocValidateError {}
 
+/** The bytes are not the kind of document the request said it would carry. */
+export class DeclaredTypeMismatchError extends DocValidateError {}
+
 /** The upload window closed before the bytes arrived. */
 export class RequestExpiredError extends DocValidateError {}
 
@@ -55,6 +58,7 @@ export class ValidationTimeoutError extends DocValidateError {
 const BY_CODE: Record<string, new (message: string, options?: { status?: number; problem?: ProblemDetail }) => DocValidateError> = {
   VALIDATION_NOT_FOUND: ValidationNotFoundError,
   CONTENT_MISMATCH: ContentMismatchError,
+  DECLARED_TYPE_MISMATCH: DeclaredTypeMismatchError,
   REQUEST_EXPIRED: RequestExpiredError,
   INVALID_STATE_TRANSITION: InvalidStateTransitionError,
   INVALID_REQUEST: InvalidRequestError,

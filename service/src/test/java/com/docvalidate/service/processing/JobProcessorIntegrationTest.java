@@ -43,8 +43,8 @@ class JobProcessorIntegrationTest extends PostgresTestBase {
                         .isEqualTo(ValidationStatus.COMPLETED));
 
         assertThat(results.findByRequestId(requestId)).get().satisfies(result -> {
-            assertThat(result.getVerdict()).isEqualTo(Verdict.VALID);
-            assertThat(result.getExtractedFields()).containsEntry("documentType", "INVOICE");
+            assertThat(result.getVerdict()).isEqualTo(Verdict.PASS);
+            assertThat(result.getFields()).containsEntry("documentType", "INVOICE");
         });
     }
 

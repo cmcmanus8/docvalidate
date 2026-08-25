@@ -240,10 +240,18 @@ Base path `/api/v1`.
 | `PUT` | `/validations/{requestId}/content` | Upload bytes. `202` on accept, `200` on replay |
 | `GET` | `/validations/{requestId}` | Status, plus result once terminal |
 | `GET` | `/actuator/health` | Liveness |
+| `GET` | `/swagger-ui.html` | Interactive API docs (springdoc) |
 
 Local runs map Postgres to host port **5433** by default, overridable with
 `POSTGRES_PORT`, because a developer machine very often already has something on
 5432. The service reads the same variable.
+
+The create body is optional and, when present, declares the document: `filename` and
+`contentType`, both constrained with `jakarta.validation`. Declaring is not required,
+but it buys two things - the upload may then omit `Content-Disposition`, and bytes
+whose media type contradicts the declaration are refused with `409`
+`DECLARED_TYPE_MISMATCH` rather than quietly stored under a filename that promised
+something else.
 
 The upload is a raw body rather than multipart, carrying its metadata in the two
 headers a presigned S3 `PUT` would use anyway: `Content-Type`, and
@@ -296,9 +304,15 @@ violations map to `400` with the offending fields listed.
 
 Deterministic, no I/O beyond reading the stored bytes:
 
-- Empty file -> `FAILED`, reason `EMPTY_DOCUMENT`
-- Content type outside the allowed set -> `FAILED`, reason `UNSUPPORTED_CONTENT_TYPE`
-- Otherwise -> `COMPLETED` with a verdict derived from filename and content type
+- Empty file -> `FAILED`, verdict `FAIL`, reason `EMPTY_DOCUMENT`
+- Content type outside the allowed set -> `FAILED`, verdict `FAIL`, reason `UNSUPPORTED_CONTENT_TYPE`
+- Otherwise -> `COMPLETED`, verdict `PASS`, with `fields` derived from filename and content type
+
+The verdict vocabulary is `PASS` / `FAIL` / `ERROR`. The third value is the addition:
+a document we never managed to read has not been judged, and reporting it as `FAIL`
+would tell a caller their valid document was rejected when in truth our storage
+blinked. `FAILED` the status and `FAIL` the verdict are therefore not synonyms - a
+`FAILED` request carries either.
 
 An artificial delay makes the asynchronous lifecycle observable, so the SDK's
 `waitForCompletion` is genuinely exercised rather than passing because the work
@@ -329,4 +343,5 @@ Named rather than hidden, in the order I would do them:
    also the point at which `confirm` earns its place.
 4. **Auth.** JWT or an API key in front of the API; deliberately absent here,
    since the brief asks for it only if present.
-5. **OpenAPI.** springdoc gives a Swagger UI for perhaps fifteen minutes' work.
+5. **A verdict worth the name.** The validator is a deterministic stub; everything
+   above it is built so that replacing it is a single class.

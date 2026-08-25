@@ -43,14 +43,18 @@ public class ValidationService {
      * is meant to find the winning row would fail too.
      */
     public CreateResult create(String idempotencyKey) {
+        return create(idempotencyKey, null, null);
+    }
+
+    public CreateResult create(String idempotencyKey, String declaredFilename, String declaredContentType) {
         if (idempotencyKey != null) {
             var existing = requests.findByIdempotencyKey(idempotencyKey);
             if (existing.isPresent()) {
                 return new CreateResult(existing.get(), true);
             }
         }
-        ValidationRequest request =
-                ValidationRequest.create(idempotencyKey, clock.instant(), properties.uploadWindow());
+        ValidationRequest request = ValidationRequest.create(
+                idempotencyKey, declaredFilename, declaredContentType, clock.instant(), properties.uploadWindow());
         try {
             return new CreateResult(requests.saveAndFlush(request), false);
         } catch (DataIntegrityViolationException e) {
@@ -66,6 +70,10 @@ public class ValidationService {
     }
 
     @Transactional
+    /**
+     * @param filename from the upload's Content-Disposition, or null to fall back to whatever
+     *                 the request declared when it was created.
+     */
     public UploadOutcome upload(UUID requestId, String filename, String contentType, byte[] content) {
         if (content.length > properties.maxUploadSize().toBytes()) {
             throw new PayloadTooLargeException(properties.maxUploadSize().toBytes());
@@ -94,6 +102,17 @@ public class ValidationService {
             return UploadOutcome.EXPIRED;
         }
 
+        String resolvedFilename = filename != null ? filename
+                : request.getDeclaredFilename().orElseThrow(MissingFilenameException::new);
+
+        // The declaration is a promise about the bytes, so breaking it is the caller's error
+        // rather than something to silently overwrite.
+        request.getDeclaredContentType()
+                .filter(declared -> !declared.equals(contentType))
+                .ifPresent(declared -> {
+                    throw new DeclaredTypeMismatchException(requestId, declared, contentType);
+                });
+
         if (request.getStatus() != ValidationStatus.PENDING_UPLOAD) {
             // Checked before the write. Storage is not transactional, so an upload the
             // domain is about to reject must not overwrite bytes already on disk.
@@ -102,8 +121,8 @@ public class ValidationService {
 
         // Written before the transition so a storage failure leaves the request
         // still awaiting an upload rather than QUEUED with nothing behind it.
-        String storageKey = storage.store(requestId, filename, content);
-        request.attachDocument(filename, contentType, content.length, digest, storageKey, now);
+        String storageKey = storage.store(requestId, resolvedFilename, content);
+        request.attachDocument(resolvedFilename, contentType, content.length, digest, storageKey, now);
 
         // The listener is AFTER_COMMIT, so nothing reaches the broker for a transaction
         // that later rolls back.

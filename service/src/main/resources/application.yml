@@ -66,6 +66,10 @@ docvalidate:
     - image/jpeg
     - text/plain
 
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+
 management:
   endpoints:
     web:

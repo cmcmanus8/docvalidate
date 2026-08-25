@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { DocValidateClient } from '../src/client.js';
+import { DocValidateClient, createClient } from '../src/client.js';
 import {
   ContentMismatchError,
+  DeclaredTypeMismatchError,
   InvalidRequestError,
   NetworkError,
   ServiceError,
@@ -41,9 +42,10 @@ describe('createValidation', () => {
   it('sends the idempotency key when one is given', async () => {
     const { client: sdk, calls } = client([{ status: 201, body: {} }]);
 
-    await sdk.createValidation('key-1');
+    await sdk.createValidation({ idempotencyKey: 'key-1' });
 
     expect(calls[0]?.headers['idempotency-key']).toBe('key-1');
+    expect(calls[0]?.body).toBeUndefined();
   });
 
   it('does not retry an unkeyed create, because a replay would mint a second request', async () => {
@@ -59,7 +61,7 @@ describe('createValidation', () => {
       { status: 200, body: { requestId: REQUEST_ID } },
     ]);
 
-    await expect(sdk.createValidation('key-1')).resolves.toMatchObject({ requestId: REQUEST_ID });
+    await expect(sdk.createValidation({ idempotencyKey: 'key-1' })).resolves.toMatchObject({ requestId: REQUEST_ID });
     expect(calls).toHaveLength(2);
   });
 });
@@ -142,7 +144,7 @@ describe('waitForCompletion', () => {
     const { client: sdk, calls } = client([
       { status: 200, body: validation('QUEUED') },
       { status: 200, body: validation('PROCESSING') },
-      { status: 200, body: validation('COMPLETED', { result: { verdict: 'VALID' } }) },
+      { status: 200, body: validation('COMPLETED', { result: { verdict: 'PASS' } }) },
     ]);
 
     const result = await sdk.waitForCompletion(REQUEST_ID, { pollIntervalMs: 1 });
@@ -153,7 +155,7 @@ describe('waitForCompletion', () => {
 
   it('treats FAILED as an answer rather than an error', async () => {
     const { client: sdk } = client([
-      { status: 200, body: validation('FAILED', { result: { verdict: 'INVALID', reason: 'EMPTY_DOCUMENT' } }) },
+      { status: 200, body: validation('FAILED', { result: { verdict: 'FAIL', reason: 'EMPTY_DOCUMENT' } }) },
     ]);
 
     const result = await sdk.waitForCompletion(REQUEST_ID);
@@ -175,13 +177,71 @@ describe('validate', () => {
     const { client: sdk, calls } = client([
       { status: 201, body: { requestId: REQUEST_ID, uploadUrl: 'u', status: 'PENDING_UPLOAD', expiresAt: 'z' } },
       { status: 202, body: validation('QUEUED') },
-      { status: 200, body: validation('COMPLETED', { result: { verdict: 'VALID' } }) },
+      { status: 200, body: validation('COMPLETED', { result: { verdict: 'PASS' } }) },
     ]);
 
     const result = await sdk.validate({ filename: 'invoice.pdf', contentType: 'application/pdf', content: 'hello' });
 
     expect(result.status).toBe('COMPLETED');
     expect(calls.map((c) => c.method)).toEqual(['POST', 'PUT', 'GET']);
+  });
+});
+
+describe('declaring the document up front', () => {
+  it('sends filename and contentType as a JSON body', async () => {
+    const { client: sdk, calls } = client([{ status: 201, body: {} }]);
+
+    await sdk.createValidation({ filename: 'invoice.pdf', contentType: 'application/pdf' });
+
+    expect(calls[0]?.headers['content-type']).toBe('application/json');
+    expect(JSON.parse(calls[0]?.body ?? '{}')).toEqual({
+      filename: 'invoice.pdf',
+      contentType: 'application/pdf',
+    });
+  });
+
+  it('declares the document when validate() creates the request', async () => {
+    const { client: sdk, calls } = client([
+      { status: 201, body: { requestId: REQUEST_ID, uploadUrl: 'u', status: 'PENDING_UPLOAD', expiresAt: 'z' } },
+      { status: 202, body: validation('QUEUED') },
+      { status: 200, body: validation('COMPLETED', { result: { verdict: 'PASS' } }) },
+    ]);
+
+    await sdk.validate({ filename: 'invoice.pdf', contentType: 'application/pdf', content: 'x' });
+
+    expect(JSON.parse(calls[0]?.body ?? '{}')).toMatchObject({ filename: 'invoice.pdf' });
+  });
+
+  it('maps a contradicted declaration to DeclaredTypeMismatchError', async () => {
+    const { client: sdk } = client([{ status: 409, body: { code: 'DECLARED_TYPE_MISMATCH', detail: 'nope' } }]);
+
+    await expect(sdk.getValidation(REQUEST_ID)).rejects.toBeInstanceOf(DeclaredTypeMismatchError);
+  });
+});
+
+describe('validate replaying a key', () => {
+  it('skips the upload when the key replayed into a request that already has one', async () => {
+    const { client: sdk, calls } = client([
+      { status: 200, body: { requestId: REQUEST_ID, uploadUrl: 'u', status: 'COMPLETED', expiresAt: 'z' } },
+      { status: 200, body: validation('COMPLETED', { result: { verdict: 'PASS' } }) },
+    ]);
+
+    const result = await sdk.validate(
+      { filename: 'invoice.pdf', contentType: 'application/pdf', content: 'x' },
+      { idempotencyKey: 'already-done' },
+    );
+
+    expect(result.status).toBe('COMPLETED');
+    expect(calls.map((c) => c.method)).toEqual(['POST', 'GET']);
+  });
+});
+
+describe('createClient', () => {
+  it('builds the same client as the constructor', async () => {
+    const { fetch } = stubFetch([{ status: 200, body: validation('COMPLETED') }]);
+    const sdk = createClient({ baseUrl: 'http://localhost:8080', fetch });
+
+    await expect(sdk.getValidation(REQUEST_ID)).resolves.toMatchObject({ status: 'COMPLETED' });
   });
 });
 

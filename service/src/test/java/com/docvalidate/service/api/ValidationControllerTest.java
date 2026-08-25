@@ -12,6 +12,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.docvalidate.service.application.ContentMismatchException;
+import com.docvalidate.service.application.DeclaredTypeMismatchException;
+import com.docvalidate.service.application.MissingFilenameException;
 import com.docvalidate.service.application.CreateResult;
 import com.docvalidate.service.application.UploadOutcome;
 import com.docvalidate.service.application.ValidationNotFoundException;
@@ -55,7 +57,7 @@ class ValidationControllerTest {
     @Test
     void createReturns201WithAnAbsoluteUploadUrl() throws Exception {
         ValidationRequest request = pendingRequest();
-        when(validations.create(null)).thenReturn(new CreateResult(request, false));
+        when(validations.create(null, null, null)).thenReturn(new CreateResult(request, false));
 
         mvc.perform(post("/api/v1/validations"))
                 .andExpect(status().isCreated())
@@ -70,7 +72,7 @@ class ValidationControllerTest {
     @Test
     void aReplayedIdempotencyKeyReturns200AndCreatesNothing() throws Exception {
         ValidationRequest request = pendingRequest();
-        when(validations.create("key-1")).thenReturn(new CreateResult(request, true));
+        when(validations.create("key-1", null, null)).thenReturn(new CreateResult(request, true));
 
         mvc.perform(post("/api/v1/validations").header("Idempotency-Key", "key-1"))
                 .andExpect(status().isOk())
@@ -110,14 +112,16 @@ class ValidationControllerTest {
     }
 
     @Test
-    void anUploadWithoutAFilenameIsRejectedBeforeItReachesTheService() throws Exception {
+    void anUploadWithNoFilenameAnywhereIs400() throws Exception {
+        // Neither a Content-Disposition nor a declaration on the request: the service is
+        // the layer that can tell, so it decides and the advice maps it.
+        when(validations.upload(any(), any(), any(), any())).thenThrow(new MissingFilenameException());
+
         mvc.perform(put("/api/v1/validations/{id}/content", UUID.randomUUID())
                         .contentType(MediaType.APPLICATION_PDF)
                         .content("hello"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
-
-        verifyNoInteractions(validations);
     }
 
     @Test
@@ -203,5 +207,69 @@ class ValidationControllerTest {
                 .andExpect(status().isMethodNotAllowed())
                 .andExpect(header().exists(HttpHeaders.ALLOW))
                 .andExpect(jsonPath("$.code").value("METHOD_NOT_ALLOWED"));
+    }
+
+    @Test
+    void aCreateBodyDeclaringTheDocumentIsPassedThrough() throws Exception {
+        ValidationRequest request = pendingRequest();
+        when(validations.create(null, "invoice.pdf", "application/pdf"))
+                .thenReturn(new CreateResult(request, false));
+
+        mvc.perform(post("/api/v1/validations")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"filename\":\"invoice.pdf\",\"contentType\":\"application/pdf\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.requestId").value(request.getId().toString()));
+    }
+
+    @Test
+    void aFilenameWithAPathIsRejectedByBeanValidation() throws Exception {
+        mvc.perform(post("/api/v1/validations")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"filename\":\"../../etc/passwd\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"))
+                .andExpect(jsonPath("$.errors[0].field").value("filename"))
+                .andExpect(jsonPath("$.errors[0].message").value("filename must not contain a path"));
+
+        verifyNoInteractions(validations);
+    }
+
+    @Test
+    void aContentTypeThatIsNotAMediaTypeIsRejected() throws Exception {
+        mvc.perform(post("/api/v1/validations")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"contentType\":\"not a media type\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+    }
+
+    @Test
+    void anUploadMayOmitContentDispositionAndLetTheServiceUseTheDeclaredFilename() throws Exception {
+        ValidationRequest request = pendingRequest();
+        request.attachDocument("declared.pdf", "application/pdf", 5L, "a".repeat(64), "key", NOW);
+        when(validations.upload(eq(request.getId()), eq(null), eq("application/pdf"), any()))
+                .thenReturn(UploadOutcome.ACCEPTED);
+        when(validations.get(request.getId())).thenReturn(request);
+
+        mvc.perform(put("/api/v1/validations/{id}/content", request.getId())
+                        .contentType(MediaType.APPLICATION_PDF)
+                        .content("hello"))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.document.filename").value("declared.pdf"));
+    }
+
+    @Test
+    void bytesThatContradictTheDeclarationAre409() throws Exception {
+        UUID requestId = UUID.randomUUID();
+        when(validations.upload(any(), any(), any(), any()))
+                .thenThrow(new DeclaredTypeMismatchException(requestId, "application/pdf", "image/png"));
+
+        mvc.perform(put("/api/v1/validations/{id}/content", requestId)
+                        .contentType(MediaType.IMAGE_PNG)
+                        .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"x.png\"")
+                        .content("hello"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("DECLARED_TYPE_MISMATCH"));
     }
 }
